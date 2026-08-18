@@ -1,14 +1,11 @@
 package com.cabiaoshs.attendance.data
 
 import com.cabiaoshs.attendance.BuildConfig
-import io.github.jan_tennert.supabase.SupabaseClient
-import io.github.jan_tennert.supabase.auth.providers.Email
-import io.github.jan_tennert.supabase.postgrest.decodeAs
-import io.github.jan_tennert.supabase.postgrest.decodeList
-import io.github.jan_tennert.supabase.postgrest.decodeSingle
-import io.github.jan_tennert.supabase.postgrest.from
-import io.github.jan_tennert.supabase.postgrest.query.Order
-import io.github.jan_tennert.supabase.postgrest.rpc
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
@@ -47,9 +44,9 @@ data class DeviceBinding(
 
 class AttendanceRepository(private val client: SupabaseClient) {
 
-    suspend fun isLoggedIn(): Boolean = client.auth.currentSessionOrNull != null
+    suspend fun isLoggedIn(): Boolean = client.auth.currentSessionOrNull() != null
 
-    suspend fun currentUserId(): String? = client.auth.currentUserOrNull?.id
+    suspend fun currentUserId(): String? = client.auth.currentUserOrNull()?.id
 
     suspend fun login(email: String, password: String) {
         client.auth.signInWith(Email) {
@@ -62,12 +59,12 @@ class AttendanceRepository(private val client: SupabaseClient) {
 
     suspend fun myProfile(): EmployeeProfile =
         client.postgrest.from("employees")
-            .select { filter { eq("id", client.auth.currentUserOrNull!!.id) } }
+            .select { filter { eq("id", client.auth.currentUserOrNull()!!.id) } }
             .decodeSingle<EmployeeProfile>()
 
     suspend fun myBoundDevice(): DeviceBinding? = try {
         client.postgrest.from("devices")
-            .select { filter { eq("employee_id", client.auth.currentUserOrNull!!.id) } }
+            .select { filter { eq("employee_id", client.auth.currentUserOrNull()!!.id) } }
             .decodeSingle<DeviceBinding>()
     } catch (e: Exception) {
         null
@@ -76,9 +73,9 @@ class AttendanceRepository(private val client: SupabaseClient) {
     suspend fun recentRecords(limit: Int = 30): List<AttendanceRecord> =
         client.postgrest.from("attendance")
             .select {
-                filter { eq("employee_id", client.auth.currentUserOrNull!!.id) }
+                filter { eq("employee_id", client.auth.currentUserOrNull()!!.id) }
                 order("checked_at", Order.DESCENDING)
-                limit(limit)
+                limit(limit.toLong())
             }
             .decodeList<AttendanceRecord>()
 

@@ -3,7 +3,6 @@ package com.cabiaoshs.attendance
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricPrompt
@@ -12,13 +11,14 @@ import androidx.biometric.BiometricManager.Authenticators
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cabiaoshs.attendance.data.SupabaseHolder
 import com.cabiaoshs.attendance.ui.AppViewModel
 import com.cabiaoshs.attendance.ui.CheckType
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()

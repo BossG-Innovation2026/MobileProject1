@@ -1,12 +1,10 @@
 package com.cabiaoshs.attendance.data
 
 import com.cabiaoshs.attendance.BuildConfig
-import io.github.jan_tennert.supabase.Ktor
-import io.github.jan_tennert.supabase.SupabaseClient
-import io.github.jan_tennert.supabase.createSupabaseClient
-import io.github.jan_tennert.supabase.auth.Auth
-import io.github.jan_tennert.supabase.install
-import io.github.jan_tennert.supabase.postgrest.Postgrest
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.postgrest.Postgrest
 import io.ktor.client.engine.okhttp.OkHttp
 
 object SupabaseHolder {
@@ -20,7 +18,7 @@ object SupabaseHolder {
             supabaseUrl = BuildConfig.SUPABASE_URL,
             supabaseKey = BuildConfig.SUPABASE_ANON_KEY
         ) {
-            install(Ktor) { engine = OkHttp }
+            httpEngine = OkHttp.create()
             install(Auth) {
                 autoLoadFromStorage = true
                 autoSaveToStorage = true

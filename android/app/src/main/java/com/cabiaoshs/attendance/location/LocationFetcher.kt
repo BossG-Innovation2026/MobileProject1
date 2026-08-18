@@ -3,7 +3,7 @@ package com.cabiaoshs.attendance.location
 import android.content.Context
 import android.location.Location
 import com.cabiaoshs.attendance.device.DeviceIdentity
-import com.google.android.gms.location.LocationRequest.Priority
+import com.google.android.gms.location.Priority
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.delay

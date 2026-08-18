@@ -252,15 +252,17 @@ async function renderLive(v) {
     <div class="panel">
       <h2>Clocked in now (${status.length})</h2>
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Time in</th><th>Distance</th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Time in</th><th>Mode</th><th>Distance</th><th>Note</th></tr></thead>
         <tbody>
           ${status.map((s) => `<tr>
             <td>${esc(s.full_name)}</td>
             <td>${esc(s.email)}</td>
             <td>${fmtTime(s.checked_at)}</td>
+            <td><span class="badge ${s.mode === "outside" ? "out" : "in"}">${esc((s.mode || "inside").toUpperCase())}</span></td>
             <td class="muted">${s.distance_m != null ? Math.round(s.distance_m) + " m" : "—"}</td>
+            <td class="muted">${esc(s.note || "—")}</td>
           </tr>`).join("") ||
-          `<tr><td colspan="4" class="empty">Nobody is clocked in right now.</td></tr>`}
+          `<tr><td colspan="6" class="empty">Nobody is clocked in right now.</td></tr>`}
         </tbody>
       </table>
       <p class="muted" style="margin-top:10px">Auto-refreshes every 60 seconds.</p>
@@ -300,6 +302,7 @@ async function renderRecords(v) {
           Name: emp?.full_name || r.employee_id,
           Email: emp?.email || "—",
           Type: r.check_type.toUpperCase(),
+          Mode: r.mode ? r.mode.toUpperCase() : "—",
           Time: new Date(r.checked_at).toLocaleString(),
           Distance: r.distance_m != null ? Math.round(r.distance_m) + " m" : "—",
           Accuracy: r.gps_accuracy != null ? Math.round(r.gps_accuracy) + " m" : "—",
@@ -311,10 +314,11 @@ async function renderRecords(v) {
       window.__csvRows = rows;
       $("#recTable").innerHTML = rows.length ? `
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Time</th><th>Distance</th><th>GPS acc.</th><th>Bio</th><th>Status</th><th>Note</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Mode</th><th>Time</th><th>Distance</th><th>GPS acc.</th><th>Bio</th><th>Status</th><th>Note</th></tr></thead>
           <tbody>${rows.map((r) => `<tr>
             <td>${esc(r.Name)}</td>
             <td><span class="badge ${r.Type === "IN" ? "in" : "out"}">${r.Type}</span></td>
+            <td><span class="badge ${r.Mode === "OUTSIDE" ? "out" : "in"}">${r.Mode}</span></td>
             <td>${esc(r.Time)}</td>
             <td class="muted">${esc(r.Distance)}</td>
             <td class="muted">${esc(r.Accuracy)}</td>

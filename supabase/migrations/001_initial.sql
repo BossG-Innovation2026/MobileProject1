@@ -46,6 +46,7 @@ create table if not exists public.attendance (
   gps_accuracy double precision,
   distance_m double precision,
   biometric_verified boolean not null default true,
+  mode text not null default 'inside' check (mode in ('inside', 'outside')),
   status text not null default 'valid' check (status in ('valid', 'overridden')),
   note text,
   created_at timestamptz not null default now()
@@ -154,7 +155,10 @@ create or replace function public.check_in(
   p_accuracy double precision,
   p_android_id text,
   p_device_name text,
-  p_biometric boolean
+  p_biometric boolean,
+  p_mode text default 'inside',
+  p_checked_at timestamptz default null,
+  p_note text default null
 ) returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -166,12 +170,23 @@ declare
   v_max_acc double precision;
   v_last public.attendance;
   v_record public.attendance;
+  v_checked_at timestamptz;
 begin
-  select * into v_employee from public.employees where id = auth.uid();
+  select * into v_employee from public.employees where id = auth.uid() for update;
   if v_employee is null then raise exception 'unauthorized'; end if;
   if not v_employee.is_active then raise exception 'account_disabled'; end if;
 
   if p_lat is null or p_lng is null then raise exception 'location_missing'; end if;
+  if p_mode not in ('inside', 'outside') then raise exception 'invalid_mode'; end if;
+
+  -- Offline entries carry their captured time; guard against fabrication.
+  v_checked_at := coalesce(p_checked_at, now());
+  if v_checked_at > now() + interval '5 minutes' then
+    raise exception 'future_timestamp';
+  end if;
+  if v_checked_at < now() - interval '24 hours' then
+    raise exception 'too_old: entries older than 24 hours are rejected';
+  end if;
 
   v_radius  := (public.get_setting('check_radius_m'))::double precision;
   v_max_acc := (public.get_setting('max_gps_accuracy_m'))::double precision;
@@ -180,13 +195,22 @@ begin
     raise exception 'gps_accuracy_too_low: %m (max %)', p_accuracy, v_max_acc;
   end if;
 
-  v_dist := public.haversine_m(
-    p_lat, p_lng,
-    (public.get_setting('school_location') ->> 'lat')::double precision,
-    (public.get_setting('school_location') ->> 'lng')::double precision
-  );
-  if v_dist > v_radius then
-    raise exception 'outside_radius: %m from school (max %)', round(v_dist), round(v_radius);
+  -- Radius rule only applies when physically inside the school grounds.
+  if p_mode = 'inside' then
+    v_dist := public.haversine_m(
+      p_lat, p_lng,
+      (public.get_setting('school_location') ->> 'lat')::double precision,
+      (public.get_setting('school_location') ->> 'lng')::double precision
+    );
+    if v_dist > v_radius then
+      raise exception 'outside_radius: %m from school (max %)', round(v_dist), round(v_radius);
+    end if;
+  else
+    v_dist := public.haversine_m(
+      p_lat, p_lng,
+      (public.get_setting('school_location') ->> 'lat')::double precision,
+      (public.get_setting('school_location') ->> 'lng')::double precision
+    );
   end if;
 
   v_device_id := public.resolve_device(v_employee.id, p_android_id, p_device_name);
@@ -194,7 +218,7 @@ begin
   select * into v_last from public.attendance
   where employee_id = v_employee.id
   order by checked_at desc limit 1;
-  if v_last is not null and v_last.check_type = 'in' then
+  if v_last.id is not null and v_last.check_type = 'in' then
     raise exception 'already_checked_in';
   end if;
 
@@ -206,16 +230,19 @@ begin
   end if;
 
   insert into public.attendance
-    (employee_id, device_id, check_type, latitude, longitude, gps_accuracy, distance_m, biometric_verified)
+    (employee_id, device_id, check_type, checked_at, latitude, longitude,
+     gps_accuracy, distance_m, biometric_verified, mode, note)
   values
-    (v_employee.id, v_device_id, 'in', p_lat, p_lng, p_accuracy, v_dist, coalesce(p_biometric, false))
+    (v_employee.id, v_device_id, 'in', v_checked_at, p_lat, p_lng,
+     p_accuracy, v_dist, coalesce(p_biometric, false), p_mode, p_note)
   returning * into v_record;
 
   return jsonb_build_object(
     'id', v_record.id,
     'check_type', v_record.check_type,
     'checked_at', v_record.checked_at,
-    'distance_m', v_record.distance_m
+    'distance_m', v_record.distance_m,
+    'mode', v_record.mode
   );
 end;
 $$;
@@ -226,7 +253,10 @@ create or replace function public.check_out(
   p_accuracy double precision,
   p_android_id text,
   p_device_name text,
-  p_biometric boolean
+  p_biometric boolean,
+  p_mode text default 'inside',
+  p_checked_at timestamptz default null,
+  p_note text default null
 ) returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -238,12 +268,22 @@ declare
   v_max_acc double precision;
   v_last public.attendance;
   v_record public.attendance;
+  v_checked_at timestamptz;
 begin
-  select * into v_employee from public.employees where id = auth.uid();
+  select * into v_employee from public.employees where id = auth.uid() for update;
   if v_employee is null then raise exception 'unauthorized'; end if;
   if not v_employee.is_active then raise exception 'account_disabled'; end if;
 
   if p_lat is null or p_lng is null then raise exception 'location_missing'; end if;
+  if p_mode not in ('inside', 'outside') then raise exception 'invalid_mode'; end if;
+
+  v_checked_at := coalesce(p_checked_at, now());
+  if v_checked_at > now() + interval '5 minutes' then
+    raise exception 'future_timestamp';
+  end if;
+  if v_checked_at < now() - interval '24 hours' then
+    raise exception 'too_old: entries older than 24 hours are rejected';
+  end if;
 
   v_radius  := (public.get_setting('check_radius_m'))::double precision;
   v_max_acc := (public.get_setting('max_gps_accuracy_m'))::double precision;
@@ -257,7 +297,7 @@ begin
     (public.get_setting('school_location') ->> 'lat')::double precision,
     (public.get_setting('school_location') ->> 'lng')::double precision
   );
-  if v_dist > v_radius then
+  if p_mode = 'inside' and v_dist > v_radius then
     raise exception 'outside_radius: %m from school (max %)', round(v_dist), round(v_radius);
   end if;
 
@@ -266,21 +306,24 @@ begin
   select * into v_last from public.attendance
   where employee_id = v_employee.id
   order by checked_at desc limit 1;
-  if v_last is null or v_last.check_type = 'out' then
+  if v_last.id is null or v_last.check_type = 'out' then
     raise exception 'not_checked_in';
   end if;
 
   insert into public.attendance
-    (employee_id, device_id, check_type, latitude, longitude, gps_accuracy, distance_m, biometric_verified)
+    (employee_id, device_id, check_type, checked_at, latitude, longitude,
+     gps_accuracy, distance_m, biometric_verified, mode, note)
   values
-    (v_employee.id, v_device_id, 'out', p_lat, p_lng, p_accuracy, v_dist, coalesce(p_biometric, false))
+    (v_employee.id, v_device_id, 'out', v_checked_at, p_lat, p_lng,
+     p_accuracy, v_dist, coalesce(p_biometric, false), p_mode, p_note)
   returning * into v_record;
 
   return jsonb_build_object(
     'id', v_record.id,
     'check_type', v_record.check_type,
     'checked_at', v_record.checked_at,
-    'distance_m', v_record.distance_m
+    'distance_m', v_record.distance_m,
+    'mode', v_record.mode
   );
 end;
 $$;
@@ -296,7 +339,7 @@ create or replace function public.admin_register_employee(
   p_full_name text,
   p_role text default 'employee'
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_admin public.employees;
@@ -308,12 +351,16 @@ begin
 
   insert into auth.users (
     instance_id, id, aud, role, email, encrypted_password,
-    email_confirmed_at, created_at, updated_at
+    email_confirmed_at, created_at, updated_at,
+    confirmation_token, recovery_token, email_change,
+    email_change_token_new, email_change_token_current,
+    reauthentication_token, phone_change_token, phone_change
   ) values (
     '00000000-0000-0000-0000-000000000000',
     gen_random_uuid(), 'authenticated', 'authenticated',
     lower(p_email), crypt(p_password, gen_salt('bf')),
-    now(), now(), now()
+    now(), now(), now(),
+    '', '', '', '', '', '', '', ''
   )
   returning id into v_user_id;
 
@@ -329,7 +376,8 @@ create or replace function public.admin_override(
   p_employee_email text,
   p_check_type text,
   p_checked_at timestamptz,
-  p_note text
+  p_note text,
+  p_mode text default 'inside'
 ) returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -341,14 +389,15 @@ begin
   select * into v_admin from public.employees where id = auth.uid();
   if v_admin is null or v_admin.role <> 'admin' then raise exception 'admin_only'; end if;
   if p_check_type not in ('in', 'out') then raise exception 'invalid_type'; end if;
+  if p_mode not in ('inside', 'outside') then raise exception 'invalid_mode'; end if;
 
   select * into v_employee from public.employees where email = lower(p_employee_email);
   if v_employee is null then raise exception 'employee_not_found'; end if;
 
   insert into public.attendance
-    (employee_id, check_type, checked_at, latitude, longitude, biometric_verified, status, note)
+    (employee_id, check_type, checked_at, latitude, longitude, biometric_verified, mode, status, note)
   values
-    (v_employee.id, p_check_type, p_checked_at, 0, 0, false, 'overridden', coalesce(p_note, 'manual override'))
+    (v_employee.id, p_check_type, p_checked_at, 0, 0, false, p_mode, 'overridden', coalesce(p_note, 'manual override'))
   returning * into v_record;
 
   return jsonb_build_object('id', v_record.id, 'status', v_record.status);

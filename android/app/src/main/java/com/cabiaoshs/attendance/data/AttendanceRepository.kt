@@ -20,6 +20,7 @@ data class CheckResult(
     @SerialName("check_type") val checkType: String,
     @SerialName("checked_at") val checkedAt: String,
     @SerialName("distance_m") val distanceM: Double? = null,
+    val mode: String? = null,
 )
 
 @Serializable
@@ -28,6 +29,7 @@ data class AttendanceRecord(
     @SerialName("check_type") val checkType: String,
     @SerialName("checked_at") val checkedAt: String,
     @SerialName("distance_m") val distanceM: Double? = null,
+    val mode: String? = null,
     val note: String? = null,
 )
 
@@ -87,7 +89,11 @@ class AttendanceRepository(private val client: SupabaseClient) {
         androidId: String,
         deviceName: String,
         biometric: Boolean,
-    ): CheckResult = rpc("check_in", lat, lng, accuracy, androidId, deviceName, biometric)
+        mode: String,
+        checkedAt: String,
+        note: String,
+    ): CheckResult =
+        rpc("check_in", lat, lng, accuracy, androidId, deviceName, biometric, mode, checkedAt, note)
 
     suspend fun checkOut(
         lat: Double,
@@ -96,7 +102,11 @@ class AttendanceRepository(private val client: SupabaseClient) {
         androidId: String,
         deviceName: String,
         biometric: Boolean,
-    ): CheckResult = rpc("check_out", lat, lng, accuracy, androidId, deviceName, biometric)
+        mode: String,
+        checkedAt: String,
+        note: String,
+    ): CheckResult =
+        rpc("check_out", lat, lng, accuracy, androidId, deviceName, biometric, mode, checkedAt, note)
 
     private suspend fun rpc(
         function: String,
@@ -106,6 +116,9 @@ class AttendanceRepository(private val client: SupabaseClient) {
         androidId: String,
         deviceName: String,
         biometric: Boolean,
+        mode: String,
+        checkedAt: String,
+        note: String,
     ): CheckResult =
         client.postgrest.rpc(
             function = function,
@@ -116,6 +129,9 @@ class AttendanceRepository(private val client: SupabaseClient) {
                 put("p_android_id", androidId)
                 put("p_device_name", deviceName)
                 put("p_biometric", biometric)
+                put("p_mode", mode)
+                put("p_checked_at", checkedAt)
+                put("p_note", note)
             }
         ).decodeAs<CheckResult>()
 }

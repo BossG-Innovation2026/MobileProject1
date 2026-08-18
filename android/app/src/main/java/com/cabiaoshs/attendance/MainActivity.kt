@@ -45,8 +45,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val pending by viewModel.pendingBiometric.collectAsStateWithLifecycle()
             LaunchedEffect(pending) {
-                val type = pending ?: return@LaunchedEffect
-                showBiometricPrompt(type)
+                val request = pending ?: return@LaunchedEffect
+                showBiometricPrompt(request.type)
             }
             App(viewModel)
         }

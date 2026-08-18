@@ -9,7 +9,9 @@ returns table (
   full_name text,
   email text,
   checked_at timestamptz,
-  distance_m double precision
+  distance_m double precision,
+  mode text,
+  note text
 )
 language plpgsql security definer set search_path = public
 as $$
@@ -20,7 +22,7 @@ begin
   if v_admin is null or v_admin.role <> 'admin' then raise exception 'admin_only'; end if;
 
   return query
-  select e.full_name, e.email, a.checked_at, a.distance_m
+  select e.full_name, e.email, a.checked_at, a.distance_m, a.mode, a.note
   from (
     select distinct on (employee_id) *
     from public.attendance

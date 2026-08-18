@@ -5,7 +5,6 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cabiaoshs.attendance.data.AttendanceRepository
-import com.cabiaoshs.attendance.data.DeviceBinding
 import com.cabiaoshs.attendance.data.SupabaseHolder
 import com.cabiaoshs.attendance.data.isSupabaseConfigured
 import com.cabiaoshs.attendance.device.DeviceIdentity
@@ -16,11 +15,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
-enum class CheckType { IN, OUT }
+enum class CheckType(val code: String) { IN("in"), OUT("out") }
 
 sealed interface UiState {
     data object Loading : UiState
@@ -33,12 +35,27 @@ sealed interface UiState {
         val lastIn: String? = null,
         val lastOut: String? = null,
         val boundDevice: String? = null,
+        val pendingCount: Int = 0,
         val busy: Boolean = false,
         val busyLabel: String? = null,
         val message: String? = null,
         val messageIsError: Boolean = true,
     ) : UiState
 }
+
+/** What to send to the server for one check-in/out attempt. */
+data class PendingCheckRequest(val type: CheckType, val mode: String, val note: String)
+
+/** A check-in/out captured offline, waiting to sync. */
+private data class PendingCheckEntry(
+    val checkType: String,
+    val lat: Double,
+    val lng: Double,
+    val accuracy: Float,
+    val checkedAt: String,
+    val mode: String,
+    val note: String,
+)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -52,8 +69,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     /** Non-null while a biometric prompt should be shown. */
-    private val _pendingBiometric = MutableStateFlow<CheckType?>(null)
-    val pendingBiometric: StateFlow<CheckType?> = _pendingBiometric.asStateFlow()
+    private val _pendingBiometric = MutableStateFlow<PendingCheckRequest?>(null)
+    val pendingBiometric: StateFlow<PendingCheckRequest?> = _pendingBiometric.asStateFlow()
 
     private val timeFormat = DateTimeFormatter.ofPattern("h:mm a")
 
@@ -73,7 +90,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             try {
-                if (repo.isLoggedIn()) loadHome() else _state.value = UiState.LoginRequired()
+                if (repo.isLoggedIn()) {
+                    loadHome()
+                    syncPending()
+                } else {
+                    _state.value = UiState.LoginRequired()
+                }
             } catch (e: Exception) {
                 _state.value = UiState.LoginRequired()
             }
@@ -87,6 +109,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 repo.login(email, password)
                 loadHome()
+                syncPending()
             } catch (e: Exception) {
                 _state.value = UiState.LoginRequired("Invalid email or password.")
             }
@@ -103,57 +126,128 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun onCheckIn() = beginCheck(CheckType.IN)
+    fun onCheckIn(mode: String, note: String) = beginCheck(CheckType.IN, mode, note)
 
-    fun onCheckOut() = beginCheck(CheckType.OUT)
+    fun onCheckOut(mode: String, note: String) = beginCheck(CheckType.OUT, mode, note)
 
     /** Biometric succeeded (or was skipped); proceed with the pending check. */
     fun proceedAfterBiometric(success: Boolean) {
-        val type = _pendingBiometric.value ?: return
+        val request = _pendingBiometric.value ?: return
         _pendingBiometric.value = null
         if (!success) return
-        viewModelScope.launch { performCheck(type) }
+        viewModelScope.launch { performCheck(request) }
     }
 
     fun onBiometricCancel() {
         _pendingBiometric.value = null
     }
 
-    private fun beginCheck(type: CheckType) {
+    private fun beginCheck(type: CheckType, mode: String, note: String) {
         val current = _state.value as? UiState.Home ?: return
         if (current.busy) return
+        val request = PendingCheckRequest(type, mode, note.trim())
         val biometricRequired = prefs.getBoolean("biometric_required", true)
         if (biometricRequired) {
-            _pendingBiometric.value = type
+            _pendingBiometric.value = request
         } else {
-            viewModelScope.launch { performCheck(type) }
+            viewModelScope.launch { performCheck(request) }
         }
     }
 
-    private suspend fun performCheck(type: CheckType) {
+    private suspend fun performCheck(request: PendingCheckRequest) {
         setBusy(true, "Getting your location…")
         try {
             val fix = LocationFetcher(context).fetchValid()
             val androidId = DeviceIdentity.androidId(context)
             val deviceName = DeviceIdentity.deviceName(context)
-            val result = when (type) {
-                CheckType.IN -> repo.checkIn(
-                    fix.latitude, fix.longitude, fix.accuracy,
-                    androidId, deviceName, biometric = true
-                )
-                CheckType.OUT -> repo.checkOut(
-                    fix.latitude, fix.longitude, fix.accuracy,
-                    androidId, deviceName, biometric = true
-                )
+            val checkedAt = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            try {
+                val result = when (request.type) {
+                    CheckType.IN -> repo.checkIn(
+                        fix.latitude, fix.longitude, fix.accuracy,
+                        androidId, deviceName, biometric = true,
+                        mode = request.mode, checkedAt = checkedAt, note = request.note
+                    )
+                    CheckType.OUT -> repo.checkOut(
+                        fix.latitude, fix.longitude, fix.accuracy,
+                        androidId, deviceName, biometric = true,
+                        mode = request.mode, checkedAt = checkedAt, note = request.note
+                    )
+                }
+                val dist = result.distanceM?.let { " (${it.toInt()}m from school)" } ?: ""
+                postInfo("Time ${if (request.type == CheckType.IN) "in" else "out"} recorded at " +
+                    timeFormat.format(OffsetDateTime.parse(result.checkedAt)) + dist)
+                loadHome()
+            } catch (e: Exception) {
+                if (isNetworkError(e)) {
+                    enqueue(PendingCheckEntry(
+                        checkType = request.type.code,
+                        lat = fix.latitude, lng = fix.longitude,
+                        accuracy = fix.accuracy, checkedAt = checkedAt,
+                        mode = request.mode, note = request.note,
+                    ))
+                    postInfo("No internet — saved on this phone. It will sync automatically when you're online.")
+                    refreshPendingCount()
+                } else {
+                    postError(e)
+                }
             }
-            val dist = result.distanceM?.let { " (${it.toInt()}m from school)" } ?: ""
-            postInfo("Time ${if (type == CheckType.IN) "in" else "out"} recorded at " +
-                timeFormat.format(OffsetDateTime.parse(result.checkedAt)) + dist)
-            loadHome()
         } catch (e: Exception) {
             postError(e)
         } finally {
             setBusy(false, null)
+        }
+    }
+
+    /** Push queued offline entries to the server, oldest first. */
+    fun syncPending() {
+        viewModelScope.launch {
+            val queue = readQueue()
+            if (queue.isEmpty()) return@launch
+            setBusy(true, "Syncing…")
+            try {
+                val androidId = DeviceIdentity.androidId(context)
+                val deviceName = DeviceIdentity.deviceName(context)
+                val iterator = queue.iterator()
+                var synced = 0
+                var kept = 0
+                while (iterator.hasNext()) {
+                    val e = iterator.next()
+                    try {
+                        if (e.checkType == "in") {
+                            repo.checkIn(
+                                e.lat, e.lng, e.accuracy, androidId, deviceName,
+                                biometric = true, mode = e.mode, checkedAt = e.checkedAt, note = e.note
+                            )
+                        } else {
+                            repo.checkOut(
+                                e.lat, e.lng, e.accuracy, androidId, deviceName,
+                                biometric = true, mode = e.mode, checkedAt = e.checkedAt, note = e.note
+                            )
+                        }
+                        iterator.remove()
+                        synced++
+                    } catch (ex: Exception) {
+                        if (isNetworkError(ex)) {
+                            kept++
+                            break
+                        }
+                        // Server rejected it (e.g. too old, sequence conflict) — drop and report.
+                        iterator.remove()
+                    }
+                }
+                writeQueue(queue)
+                val msg = when {
+                    synced > 0 && kept > 0 -> "$synced synced; still offline for the rest."
+                    synced > 0 -> "$synced pending entr${if (synced == 1) "y" else "ies"} synced."
+                    kept > 0 -> "Still offline — will retry automatically."
+                    else -> "Some pending entries were rejected by the server."
+                }
+                postInfo(msg)
+                loadHome()
+            } finally {
+                setBusy(false, null)
+            }
         }
     }
 
@@ -162,6 +256,58 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun isBiometricRequired(): Boolean = prefs.getBoolean("biometric_required", true)
+
+    /* ---------------- offline queue ---------------- */
+
+    private fun readQueue(): MutableList<PendingCheckEntry> {
+        val raw = prefs.getString("pending_queue", null) ?: return mutableListOf()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                PendingCheckEntry(
+                    checkType = o.getString("checkType"),
+                    lat = o.getDouble("lat"),
+                    lng = o.getDouble("lng"),
+                    accuracy = o.getDouble("accuracy").toFloat(),
+                    checkedAt = o.getString("checkedAt"),
+                    mode = o.getString("mode"),
+                    note = o.optString("note"),
+                )
+            }.toMutableList()
+        } catch (e: Exception) {
+            mutableListOf()
+        }
+    }
+
+    private fun writeQueue(queue: List<PendingCheckEntry>) {
+        val arr = JSONArray()
+        queue.forEach { e ->
+            arr.put(JSONObject().apply {
+                put("checkType", e.checkType)
+                put("lat", e.lat)
+                put("lng", e.lng)
+                put("accuracy", e.accuracy.toDouble())
+                put("checkedAt", e.checkedAt)
+                put("mode", e.mode)
+                put("note", e.note)
+            })
+        }
+        prefs.edit().putString("pending_queue", arr.toString()).apply()
+    }
+
+    private fun enqueue(entry: PendingCheckEntry) {
+        val queue = readQueue()
+        queue.add(entry)
+        writeQueue(queue)
+    }
+
+    private fun refreshPendingCount() {
+        val current = _state.value as? UiState.Home ?: return
+        _state.value = current.copy(pendingCount = readQueue().size)
+    }
+
+    /* ---------------- state helpers ---------------- */
 
     private suspend fun loadHome() {
         val previous = _state.value as? UiState.Home
@@ -183,6 +329,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 lastIn = lastIn?.let { timeFormat.format(OffsetDateTime.parse(it)) },
                 lastOut = lastOut?.let { timeFormat.format(OffsetDateTime.parse(it)) },
                 boundDevice = bound?.deviceName?.takeIf { it.isNotBlank() } ?: bound?.androidId,
+                pendingCount = readQueue().size,
                 message = previous?.message,
                 messageIsError = previous?.messageIsError ?: true,
             )
@@ -210,6 +357,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun isNetworkError(e: Exception): Boolean {
+        if (e is IOException) return true
+        val msg = (e.message ?: "").lowercase()
+        return msg.contains("http") || msg.contains("connectexception") ||
+            msg.contains("unknownhost") || msg.contains("timeout") ||
+            msg.contains("socket") || msg.contains("broken pipe") ||
+            msg.contains("network is unreachable")
+    }
+
     private fun friendlyError(e: Exception): String {
         val msg = e.message ?: e.javaClass.simpleName
         return when {
@@ -230,13 +386,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             msg.contains("unauthorized") -> "Session expired. Please log in again."
             msg.contains("device_identity_missing") ->
                 "Phone identity could not be read."
+            msg.contains("invalid_mode") -> "Invalid mode selected."
+            msg.contains("future_timestamp") ->
+                "The recorded time is in the future. Check your phone clock."
+            msg.contains("too_old") ->
+                "This entry is older than 24 hours and was rejected."
             msg.contains("mock") || msg.contains("Mock") ->
                 "Suspicious location detected. Disable mock locations in developer options."
             msg.contains("SecurityException") -> "Location permission is required."
             msg.contains("accuracy") || msg.contains("GPS fix") ->
                 "GPS signal too weak. Wait a moment and try again."
-            msg.contains("http") || msg.contains("ConnectException") ||
-                msg.contains("UnknownHost") || msg.contains("timeout") ->
+            isNetworkError(e) ->
                 "Cannot reach the server. Check your internet connection."
             else -> msg.take(200)
         }

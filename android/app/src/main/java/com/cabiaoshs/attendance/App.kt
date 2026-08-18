@@ -54,6 +54,7 @@ fun App(viewModel: AppViewModel = viewModel()) {
                         onCheckIn = viewModel::onCheckIn,
                         onCheckOut = viewModel::onCheckOut,
                         onOpenSettings = { showSettings = true },
+                        onSync = viewModel::syncPending,
                     )
                 }
             }

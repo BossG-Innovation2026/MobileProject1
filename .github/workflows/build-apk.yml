@@ -23,11 +23,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Write local.properties with Supabase credentials
+      - name: Write gradle.properties with Supabase credentials
         shell: bash
         run: |
-          cat > android/local.properties <<EOF
-          sdk.dir=$ANDROID_HOME
+          cat > android/gradle.properties <<EOF
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           EOF

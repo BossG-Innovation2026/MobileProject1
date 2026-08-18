@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cabiao SHS — Attendance Admin</title>
+<style>
+  :root {
+    --green: #1B5E20;
+    --green-dark: #14451a;
+    --green-light: #e8f5e9;
+    --orange: #E65100;
+    --red: #B3261E;
+    --bg: #f4f6f4;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --muted: #6b7280;
+    --border: #e2e6e2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  header {
+    background: var(--green);
+    color: #fff;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; font-weight: 600; margin-right: auto; }
+  header .user { font-size: 13px; opacity: .9; }
+  nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  nav a {
+    color: #fff;
+    text-decoration: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    opacity: .85;
+  }
+  nav a:hover { background: rgba(255,255,255,.12); opacity: 1; }
+  nav a.active { background: rgba(255,255,255,.2); opacity: 1; font-weight: 600; }
+  button {
+    font: inherit;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    background: var(--green);
+    color: #fff;
+  }
+  button:hover { background: var(--green-dark); }
+  button.secondary { background: #fff; color: var(--green); border: 1px solid var(--green); }
+  button.danger { background: #fff; color: var(--red); border: 1px solid var(--red); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 60px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card .num { font-size: 28px; font-weight: 700; color: var(--green); }
+  .card .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 20px; }
+  .panel h2 { font-size: 15px; margin-bottom: 12px; color: var(--green-dark); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  tr:hover td { background: var(--green-light); }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge.in { background: #c8e6c9; color: var(--green-dark); }
+  .badge.out { background: #ffe0b2; color: var(--orange); }
+  .badge.off { background: #f3f4f3; color: var(--muted); }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  input, select {
+    font: inherit;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+  }
+  input:focus, select:focus { outline: 2px solid var(--green); outline-offset: -1px; }
+  .form-actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
+  .msg { padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 13px; }
+  .msg.ok { background: #e8f5e9; color: var(--green-dark); border: 1px solid #a5d6a7; }
+  .msg.err { background: #fdecea; color: var(--red); border: 1px solid #f5c2c0; }
+  .login-wrap { max-width: 380px; margin: 12vh auto 0; }
+  .login-wrap .panel h2 { font-size: 18px; text-align: center; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar input { max-width: 200px; }
+  .empty { color: var(--muted); padding: 18px; text-align: center; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header id="header" hidden>
+  <h1>Cabiao SHS — Attendance</h1>
+  <nav>
+    <a href="#/dashboard" data-view="dashboard">Dashboard</a>
+    <a href="#/live" data-view="live">Live</a>
+    <a href="#/records" data-view="records">Records</a>
+    <a href="#/overrides" data-view="overrides">Overrides</a>
+    <a href="#/settings" data-view="settings">Settings</a>
+  </nav>
+  <span class="user" id="userLabel"></span>
+  <button class="secondary" id="logoutBtn">Log out</button>
+</header>
+<main id="view"></main>
+<script src="./js/config.js"></script>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

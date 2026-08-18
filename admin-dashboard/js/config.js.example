@@ -1,0 +1,7 @@
+// Cabiao SHS Attendance — admin dashboard configuration.
+// Copy this file to config.js and paste your Supabase project URL and anon key
+// (Dashboard > Settings > API). Same values as android/gradle.properties.
+window.ATTENDANCE_CONFIG = {
+  SUPABASE_URL: "",
+  SUPABASE_ANON_KEY: "",
+};

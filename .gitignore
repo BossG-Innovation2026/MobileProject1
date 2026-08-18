@@ -1,0 +1,16 @@
+# Supabase credentials — NEVER commit real values
+android/gradle.properties
+admin-dashboard/js/config.js
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.iml
+
+# OS junk
+Thumbs.db
+.DS_Store

@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cabiaoshs.attendance.data.AttendanceRepository
+import com.cabiaoshs.attendance.data.DeviceBinding
 import com.cabiaoshs.attendance.data.SupabaseHolder
 import com.cabiaoshs.attendance.data.isSupabaseConfigured
 import com.cabiaoshs.attendance.device.DeviceIdentity
@@ -35,6 +36,8 @@ sealed interface UiState {
         val lastIn: String? = null,
         val lastOut: String? = null,
         val boundDevice: String? = null,
+        val boundDevices: List<DeviceBinding> = emptyList(),
+        val maxDevices: Int = 2,
         val pendingCount: Int = 0,
         val lastSyncAt: String? = null,
         val busy: Boolean = false,
@@ -336,9 +339,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         try {
             val profile = repo.myProfile()
             val records = repo.recentRecords()
-            val bound = repo.myBoundDevice()
+            val devices = repo.myBoundDevices()
             val owner = repo.deviceOwner(DeviceIdentity.androidId(context))
             val myId = repo.currentUserId()
+            val maxDevices = repo.setting("max_devices_per_account")?.toIntOrNull() ?: 2
 
             val last = records.firstOrNull()
             val today = LocalDate.now().toString()
@@ -356,7 +360,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 checkedIn = last?.checkType == "in",
                 lastIn = lastIn?.let { timeFormat.format(OffsetDateTime.parse(it)) },
                 lastOut = lastOut?.let { timeFormat.format(OffsetDateTime.parse(it)) },
-                boundDevice = bound?.deviceName?.takeIf { it.isNotBlank() } ?: bound?.androidId,
+                boundDevice = devices.firstOrNull()?.let {
+                    it.deviceName?.takeIf { n -> n.isNotBlank() } ?: it.androidId
+                },
+                boundDevices = devices,
+                maxDevices = maxDevices,
                 pendingCount = readQueue().size,
                 lastSyncAt = prefs.getString("last_sync_at", null)
                     ?.let { runCatching { timeFormat.format(OffsetDateTime.parse(it)) }.getOrNull() },
@@ -400,6 +408,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             msg.contains("not_checked_in") -> "You have not checked in yet."
             msg.contains("device_mismatch") ->
                 "This phone is not the device bound to your account."
+            msg.contains("max_devices_reached") ->
+                "This account's device slots are full. Ask the admin to unbind one of your phones."
             msg.contains("device_bound_to_other_account") ->
                 "This phone is already bound to another account."
             msg.contains("outside_work_hours") ->

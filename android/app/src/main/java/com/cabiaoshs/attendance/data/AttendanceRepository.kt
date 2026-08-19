@@ -8,7 +8,11 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 @Serializable
@@ -68,10 +72,25 @@ class AttendanceRepository(private val client: SupabaseClient) {
             .select { filter { eq("id", client.auth.currentUserOrNull()!!.id) } }
             .decodeSingle<EmployeeProfile>()
 
-    suspend fun myBoundDevice(): DeviceBinding? = try {
+    suspend fun myBoundDevices(): List<DeviceBinding> = try {
         client.postgrest.from("devices")
-            .select { filter { eq("employee_id", client.auth.currentUserOrNull()!!.id) } }
-            .decodeSingle<DeviceBinding>()
+            .select {
+                filter { eq("employee_id", client.auth.currentUserOrNull()!!.id) }
+                order("bound_at", Order.DESCENDING)
+            }
+            .decodeList<DeviceBinding>()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** Raw value of a settings row (e.g. max_devices_per_account). Null when missing. */
+    suspend fun setting(key: String): String? = try {
+        client.postgrest.from("settings")
+            .select { filter { eq("key", key) } }
+            .decodeSingle<JsonElement>()
+            .jsonObject["value"]
+            ?.jsonPrimitive
+            ?.contentOrNull
     } catch (e: Exception) {
         null
     }

@@ -118,8 +118,22 @@ fun SettingsScreen(
             label = "Bound to account",
             value = state.boundDevice ?: "Not bound yet — binds on first check-in",
         )
+        SettingRow(
+            label = "Device slots used",
+            value = "${state.boundDevices.size} of ${state.maxDevices}",
+        )
+        state.boundDevices.forEachIndexed { i, d ->
+            SettingRow(
+                label = "Bound device ${i + 1}",
+                value = listOfNotNull(
+                    d.deviceName?.takeIf { it.isNotBlank() },
+                    d.androidId,
+                ).joinToString(" · "),
+            )
+        }
         Text(
-            text = "One phone is locked to each account. To switch phones, contact the admin.",
+            text = "Each account can use up to ${state.maxDevices} phones. " +
+                "To swap a phone, ask the admin to unbind it.",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),

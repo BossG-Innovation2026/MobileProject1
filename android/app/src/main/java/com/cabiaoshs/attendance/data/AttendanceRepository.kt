@@ -59,6 +59,14 @@ data class LoginIdentity(
     @SerialName("full_name") val fullName: String? = null,
 )
 
+@Serializable
+data class CheckRules(
+    @SerialName("school_lat") val schoolLat: Double,
+    @SerialName("school_lng") val schoolLng: Double,
+    @SerialName("check_radius_m") val checkRadiusM: Double,
+    @SerialName("max_gps_accuracy_m") val maxGpsAccuracyM: Double,
+)
+
 class AttendanceRepository(private val client: SupabaseClient) {
 
     suspend fun isLoggedIn(): Boolean = client.auth.currentSessionOrNull() != null
@@ -139,6 +147,10 @@ class AttendanceRepository(private val client: SupabaseClient) {
             }
             .decodeList<AttendanceRecord>()
 
+    /** Rules the app uses to decide inside/outside BEFORE recording a check. */
+    suspend fun getCheckRules(): CheckRules =
+        client.postgrest.rpc("get_check_rules").decodeAs<CheckRules>()
+
     suspend fun checkIn(
         lat: Double,
         lng: Double,
@@ -146,11 +158,10 @@ class AttendanceRepository(private val client: SupabaseClient) {
         androidId: String,
         deviceName: String,
         biometric: Boolean,
-        mode: String,
         checkedAt: String,
         note: String,
     ): CheckResult =
-        rpc("check_in", lat, lng, accuracy, androidId, deviceName, biometric, mode, checkedAt, note)
+        rpc("check_in", lat, lng, accuracy, androidId, deviceName, biometric, checkedAt, note)
 
     suspend fun checkOut(
         lat: Double,
@@ -159,11 +170,10 @@ class AttendanceRepository(private val client: SupabaseClient) {
         androidId: String,
         deviceName: String,
         biometric: Boolean,
-        mode: String,
         checkedAt: String,
         note: String,
     ): CheckResult =
-        rpc("check_out", lat, lng, accuracy, androidId, deviceName, biometric, mode, checkedAt, note)
+        rpc("check_out", lat, lng, accuracy, androidId, deviceName, biometric, checkedAt, note)
 
     private suspend fun rpc(
         function: String,
@@ -173,7 +183,6 @@ class AttendanceRepository(private val client: SupabaseClient) {
         androidId: String,
         deviceName: String,
         biometric: Boolean,
-        mode: String,
         checkedAt: String,
         note: String,
     ): CheckResult {
@@ -184,7 +193,6 @@ class AttendanceRepository(private val client: SupabaseClient) {
             put("p_android_id", androidId)
             put("p_device_name", deviceName)
             put("p_biometric", biometric)
-            put("p_mode", mode)
             put("p_checked_at", checkedAt)
             put("p_note", note)
         }

@@ -50,6 +50,7 @@ import com.cabiaoshs.attendance.ui.theme.AttendanceTheme
 @Composable
 fun App(viewModel: AppViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val pendingOutsidePrompt by viewModel.pendingOutsidePrompt.collectAsStateWithLifecycle()
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
     // If the app crashed last time, show the stack trace before anything else.
@@ -114,6 +115,9 @@ fun App(viewModel: AppViewModel = viewModel()) {
                             onSync = viewModel::syncPending,
                             onRefreshGps = viewModel::refreshGps,
                             onLocationPermissionNeeded = viewModel::onLocationPermissionNeeded,
+                            pendingOutsidePrompt = pendingOutsidePrompt,
+                            onOutsideConfirm = viewModel::onOutsideConfirm,
+                            onOutsideCancel = viewModel::onOutsideCancel,
                         )
                     }
                 }

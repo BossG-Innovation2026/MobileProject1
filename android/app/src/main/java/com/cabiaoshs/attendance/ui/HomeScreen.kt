@@ -16,13 +16,14 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,28 +46,25 @@ import com.cabiaoshs.attendance.MainActivity
 @Composable
 fun HomeScreen(
     state: UiState.Home,
-    onCheckIn: (mode: String, note: String) -> Unit,
-    onCheckOut: (mode: String, note: String) -> Unit,
+    onCheckIn: (note: String) -> Unit,
+    onCheckOut: (note: String) -> Unit,
     onOpenSettings: () -> Unit,
     onSync: () -> Unit,
     onRefreshGps: () -> Unit,
-    onLocationPermissionNeeded: (type: String, mode: String, note: String) -> Unit,
+    onLocationPermissionNeeded: (type: String, note: String) -> Unit,
+    pendingOutsidePrompt: OutsidePrompt?,
+    onOutsideConfirm: (note: String) -> Unit,
+    onOutsideCancel: () -> Unit,
 ) {
-    var mode by rememberSaveable { mutableStateOf("inside") }
-    var note by rememberSaveable { mutableStateOf("") }
-    val outside = mode == "outside"
-    val inLabel = if (outside) "CHECK IN" else "TIME IN"
-    val outLabel = if (outside) "CHECK OUT" else "TIME OUT"
-
     val context = LocalContext.current
     fun requestOrCheck(type: String) {
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
         if (granted) {
-            if (type == "in") onCheckIn(mode, note) else onCheckOut(mode, note)
+            if (type == "in") onCheckIn("") else onCheckOut("")
         } else {
-            onLocationPermissionNeeded(type, mode, note)
+            onLocationPermissionNeeded(type, "")
             (context as? MainActivity)?.requestLocationPermissions()
         }
     }
@@ -131,34 +129,6 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ModeButton(
-                    label = "Inside the school",
-                    selected = !outside,
-                    onClick = { mode = "inside" },
-                    modifier = Modifier.weight(1f),
-                )
-                ModeButton(
-                    label = "Outside",
-                    selected = outside,
-                    onClick = { mode = "outside" },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            if (outside) {
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it.take(80) },
-                    label = { Text("Describe your location (optional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
             Button(
                 onClick = { requestOrCheck("in") },
                 enabled = !state.busy && !state.checkedIn,
@@ -170,7 +140,7 @@ fun HomeScreen(
                     CircularProgressIndicator(strokeWidth = 2.dp)
                 } else {
                     Text(
-                        text = inLabel,
+                        text = "TIME IN",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -184,7 +154,7 @@ fun HomeScreen(
                     .height(56.dp),
             ) {
                 Text(
-                    text = outLabel,
+                    text = "TIME OUT",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.secondary,
@@ -263,32 +233,38 @@ fun HomeScreen(
             )
         }
     }
-}
 
-@Composable
-private fun ModeButton(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (selected) {
-        Button(
-            onClick = onClick,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            ),
-            modifier = modifier,
-        ) {
-            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            modifier = modifier,
-        ) {
-            Text(label, fontSize = 14.sp)
-        }
+    pendingOutsidePrompt?.let {
+        var locationNote by rememberSaveable { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = onOutsideCancel,
+            title = { Text("Outside the school") },
+            text = {
+                Column {
+                    Text("You are currently outside the school. Please enter your current location.")
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = locationNote,
+                        onValueChange = { locationNote = it.take(80) },
+                        label = { Text("Your current location") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { onOutsideConfirm(locationNote) },
+                    enabled = locationNote.isNotBlank(),
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onOutsideCancel) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }

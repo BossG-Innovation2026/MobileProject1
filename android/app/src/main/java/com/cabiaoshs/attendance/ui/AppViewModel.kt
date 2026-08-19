@@ -6,6 +6,7 @@ import android.location.LocationManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cabiaoshs.attendance.data.AttendanceRepository
+import com.cabiaoshs.attendance.data.CheckRules
 import com.cabiaoshs.attendance.data.DeviceBinding
 import com.cabiaoshs.attendance.data.SupabaseHolder
 import com.cabiaoshs.attendance.data.isSupabaseConfigured
@@ -62,7 +63,7 @@ sealed interface UiState {
 }
 
 /** What to send to the server for one check-in/out attempt. */
-data class PendingCheckRequest(val type: CheckType, val mode: String, val note: String)
+data class PendingCheckRequest(val type: CheckType, val note: String)
 
 /** A check-in/out captured offline, waiting to sync. */
 private data class PendingCheckEntry(
@@ -71,8 +72,17 @@ private data class PendingCheckEntry(
     val lng: Double,
     val accuracy: Float,
     val checkedAt: String,
-    val mode: String,
     val note: String,
+)
+
+/** Shown when the fix is beyond the check radius: ask for a location description. */
+data class OutsidePrompt(
+    val type: CheckType,
+    val lat: Double,
+    val lng: Double,
+    val accuracy: Float,
+    val checkedAt: String,
+    val distanceM: Double,
 )
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -229,13 +239,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var pendingLocationType: String? = null
-    private var pendingLocationMode: String = "inside"
     private var pendingLocationNote: String = ""
 
     /** Stashes the intended check while the location permission dialog is up. */
-    fun onLocationPermissionNeeded(type: String, mode: String, note: String) {
+    fun onLocationPermissionNeeded(type: String, note: String) {
         pendingLocationType = type
-        pendingLocationMode = mode
         pendingLocationNote = note
     }
 
@@ -244,8 +252,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val type = pendingLocationType ?: return
         pendingLocationType = null
         if (granted) {
-            if (type == "in") onCheckIn(pendingLocationMode, pendingLocationNote)
-            else onCheckOut(pendingLocationMode, pendingLocationNote)
+            if (type == "in") onCheckIn(pendingLocationNote)
+            else onCheckOut(pendingLocationNote)
         } else {
             showMessage(
                 "Location permission is required to record your time. " +
@@ -254,9 +262,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun onCheckIn(mode: String, note: String) = beginCheck(CheckType.IN, mode, note)
+    fun onCheckIn(note: String) = beginCheck(CheckType.IN, note)
 
-    fun onCheckOut(mode: String, note: String) = beginCheck(CheckType.OUT, mode, note)
+    fun onCheckOut(note: String) = beginCheck(CheckType.OUT, note)
 
     /** Biometric succeeded (or was skipped); proceed with the pending check. */
     fun proceedAfterBiometric(success: Boolean) {
@@ -276,15 +284,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun beginCheck(type: CheckType, mode: String, note: String) {
+    private fun beginCheck(type: CheckType, note: String) {
         val current = _state.value as? UiState.Home ?: return
         if (current.busy) return
-        val request = PendingCheckRequest(type, mode, note.trim())
+        val request = PendingCheckRequest(type, note.trim())
         val biometricRequired = prefs.getBoolean("biometric_required", true)
         if (biometricRequired) {
             _pendingBiometric.value = request
         } else {
             viewModelScope.launch { performCheck(request) }
+        }
+    }
+
+    /* ---------------- outside-location prompt ---------------- */
+
+    private val _pendingOutsidePrompt = MutableStateFlow<OutsidePrompt?>(null)
+    val pendingOutsidePrompt: StateFlow<OutsidePrompt?> = _pendingOutsidePrompt.asStateFlow()
+
+    /** User confirmed the outside dialog with a location description. */
+    fun onOutsideConfirm(note: String) {
+        val prompt = _pendingOutsidePrompt.value ?: return
+        _pendingOutsidePrompt.value = null
+        viewModelScope.launch {
+            val request = PendingCheckRequest(prompt.type, note.trim())
+            recordCheck(
+                request = request,
+                lat = prompt.lat, lng = prompt.lng, accuracy = prompt.accuracy,
+                checkedAt = prompt.checkedAt,
+                expectedDistance = prompt.distanceM,
+            )
+        }
+    }
+
+    fun onOutsideCancel() {
+        if (_pendingOutsidePrompt.value != null) {
+            _pendingOutsidePrompt.value = null
+            postInfo("Check cancelled.")
         }
     }
 
@@ -295,42 +330,99 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val androidId = DeviceIdentity.androidId(context)
             val deviceName = DeviceIdentity.deviceName(context)
             val checkedAt = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-            try {
-                val result = when (request.type) {
-                    CheckType.IN -> repo.checkIn(
-                        fix.latitude, fix.longitude, fix.accuracy,
-                        androidId, deviceName, biometric = true,
-                        mode = request.mode, checkedAt = checkedAt, note = request.note
-                    )
-                    CheckType.OUT -> repo.checkOut(
-                        fix.latitude, fix.longitude, fix.accuracy,
-                        androidId, deviceName, biometric = true,
-                        mode = request.mode, checkedAt = checkedAt, note = request.note
-                    )
-                }
-                val dist = result.distanceM?.let { " (${it.toInt()}m from school)" } ?: ""
-                recordSyncSuccess()
-                postInfo("Time ${if (request.type == CheckType.IN) "in" else "out"} recorded at " +
-                    formatLocal(result.checkedAt) + dist)
-                loadHome()
-            } catch (e: Exception) {
-                if (isNetworkError(e)) {
-                    enqueue(PendingCheckEntry(
-                        checkType = request.type.code,
-                        lat = fix.latitude, lng = fix.longitude,
-                        accuracy = fix.accuracy, checkedAt = checkedAt,
-                        mode = request.mode, note = request.note,
-                    ))
-                    postInfo("No internet — saved on this phone. It will sync automatically when you're online.")
-                    refreshPendingCount()
-                } else {
-                    postError(e)
-                }
+            val rules = fetchCheckRules()
+            val dist = haversineMeters(fix.latitude, fix.longitude, rules.schoolLat, rules.schoolLng)
+            if (dist > rules.checkRadiusM) {
+                _pendingOutsidePrompt.value = OutsidePrompt(
+                    type = request.type,
+                    lat = fix.latitude, lng = fix.longitude, accuracy = fix.accuracy,
+                    checkedAt = checkedAt, distanceM = dist,
+                )
+                return
             }
+            recordCheck(request, fix.latitude, fix.longitude, fix.accuracy, checkedAt, dist)
         } catch (e: Exception) {
             postError(e)
         } finally {
             setBusy(false, null)
+        }
+    }
+
+    /** Server rules, cached locally so offline checks still classify correctly. */
+    private suspend fun fetchCheckRules(): CheckRules {
+        try {
+            val rules = repo.getCheckRules()
+            prefs.edit()
+                .putString("rules_lat", rules.schoolLat.toString())
+                .putString("rules_lng", rules.schoolLng.toString())
+                .putString("rules_radius", rules.checkRadiusM.toString())
+                .putString("rules_max_acc", rules.maxGpsAccuracyM.toString())
+                .apply()
+            return rules
+        } catch (e: Exception) {
+            val lat = prefs.getString("rules_lat", null)?.toDoubleOrNull()
+            val lng = prefs.getString("rules_lng", null)?.toDoubleOrNull()
+            val radius = prefs.getString("rules_radius", null)?.toDoubleOrNull()
+            val maxAcc = prefs.getString("rules_max_acc", null)?.toDoubleOrNull()
+            if (lat != null && lng != null && radius != null && maxAcc != null) {
+                return CheckRules(lat, lng, radius, maxAcc)
+            }
+            // Defaults mirroring the server seed; refreshed on the next online check.
+            return CheckRules(15.2447, 120.9416, 300.0, 40.0)
+        }
+    }
+
+    private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+        val r = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLng = Math.toRadians(lng2 - lng1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2)
+        return r * 2 * Math.asin(Math.sqrt(a))
+    }
+
+    /** Sends one check to the server (or queues it offline) and reports the result. */
+    private suspend fun recordCheck(
+        request: PendingCheckRequest,
+        lat: Double,
+        lng: Double,
+        accuracy: Float,
+        checkedAt: String,
+        expectedDistance: Double,
+    ) {
+        val androidId = DeviceIdentity.androidId(context)
+        val deviceName = DeviceIdentity.deviceName(context)
+        try {
+            val result = when (request.type) {
+                CheckType.IN -> repo.checkIn(
+                    lat, lng, accuracy, androidId, deviceName,
+                    biometric = true, checkedAt = checkedAt, note = request.note
+                )
+                CheckType.OUT -> repo.checkOut(
+                    lat, lng, accuracy, androidId, deviceName,
+                    biometric = true, checkedAt = checkedAt, note = request.note
+                )
+            }
+            val label = result.mode ?: "inside"
+            val dist = (result.distanceM ?: expectedDistance).toInt()
+            recordSyncSuccess()
+            postInfo("Time ${if (request.type == CheckType.IN) "in" else "out"} recorded at " +
+                formatLocal(result.checkedAt) + " ($dist m from school, $label)")
+            loadHome()
+        } catch (e: Exception) {
+            if (isNetworkError(e)) {
+                enqueue(PendingCheckEntry(
+                    checkType = request.type.code,
+                    lat = lat, lng = lng,
+                    accuracy = accuracy, checkedAt = checkedAt,
+                    note = request.note,
+                ))
+                postInfo("No internet — saved on this phone. It will sync automatically when you're online.")
+                refreshPendingCount()
+            } else {
+                postError(e)
+            }
         }
     }
 
@@ -355,12 +447,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         if (e.checkType == "in") {
                             repo.checkIn(
                                 e.lat, e.lng, e.accuracy, androidId, deviceName,
-                                biometric = true, mode = e.mode, checkedAt = e.checkedAt, note = e.note
+                                biometric = true, checkedAt = e.checkedAt, note = e.note
                             )
                         } else {
                             repo.checkOut(
                                 e.lat, e.lng, e.accuracy, androidId, deviceName,
-                                biometric = true, mode = e.mode, checkedAt = e.checkedAt, note = e.note
+                                biometric = true, checkedAt = e.checkedAt, note = e.note
                             )
                         }
                         iterator.remove()
@@ -410,7 +502,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     lng = o.getDouble("lng"),
                     accuracy = o.getDouble("accuracy").toFloat(),
                     checkedAt = o.getString("checkedAt"),
-                    mode = o.getString("mode"),
                     note = o.optString("note"),
                 )
             }.toMutableList()
@@ -428,7 +519,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 put("lng", e.lng)
                 put("accuracy", e.accuracy.toDouble())
                 put("checkedAt", e.checkedAt)
-                put("mode", e.mode)
                 put("note", e.note)
             })
         }
@@ -538,8 +628,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun friendlyError(e: Exception): String {
         val msg = e.message ?: e.javaClass.simpleName
         return when {
-            msg.contains("outside_radius") ->
-                "You are outside the allowed radius. Move closer to the school gate."
             msg.contains("gps_accuracy_too_low") ->
                 "GPS signal too weak. Go to an open area and try again."
             msg.contains("already_checked_in") -> "You have already checked in."
@@ -557,7 +645,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             msg.contains("unauthorized") -> "Session expired. Please log in again."
             msg.contains("device_identity_missing") ->
                 "Phone identity could not be read."
-            msg.contains("invalid_mode") -> "Invalid mode selected."
             msg.contains("future_timestamp") ->
                 "The recorded time is in the future. Check your phone clock."
             msg.contains("too_old") ->

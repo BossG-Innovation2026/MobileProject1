@@ -2,8 +2,6 @@ package com.cabiaoshs.attendance.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.cabiaoshs.attendance.MainActivity
 
 @Composable
 fun HomeScreen(
@@ -51,7 +50,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onSync: () -> Unit,
     onRefreshGps: () -> Unit,
-    onMessage: (String) -> Unit,
+    onLocationPermissionNeeded: (type: String, mode: String, note: String) -> Unit,
 ) {
     var mode by rememberSaveable { mutableStateOf("inside") }
     var note by rememberSaveable { mutableStateOf("") }
@@ -60,22 +59,6 @@ fun HomeScreen(
     val outLabel = if (outside) "CHECK OUT" else "TIME OUT"
 
     val context = LocalContext.current
-    var pendingType by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingMode by rememberSaveable { mutableStateOf("inside") }
-    var pendingNote by rememberSaveable { mutableStateOf("") }
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        val type = pendingType
-        pendingType = null
-        if (granted && type != null) {
-            if (type == "in") onCheckIn(pendingMode, pendingNote)
-            else onCheckOut(pendingMode, pendingNote)
-        } else if (type != null) {
-            onMessage("Location permission is required to record your time. Enable it in Settings → Apps → Cabiao SHS Attendance → Permissions.")
-        }
-    }
     fun requestOrCheck(type: String) {
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
@@ -83,15 +66,8 @@ fun HomeScreen(
         if (granted) {
             if (type == "in") onCheckIn(mode, note) else onCheckOut(mode, note)
         } else {
-            pendingType = type
-            pendingMode = mode
-            pendingNote = note
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                )
-            )
+            onLocationPermissionNeeded(type, mode, note)
+            (context as? MainActivity)?.requestLocationPermissions()
         }
     }
 

@@ -1,5 +1,7 @@
 package com.cabiaoshs.attendance
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
@@ -7,6 +9,7 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
@@ -19,6 +22,10 @@ import java.io.PrintWriter
 import java.io.StringWriter
 
 class MainActivity : FragmentActivity() {
+
+    companion object {
+        private const val LOCATION_PERMISSION_REQUEST = 1001
+    }
 
     private lateinit var viewModel: AppViewModel
 
@@ -42,12 +49,29 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** Asks for location permissions; the outcome is delivered to [AppViewModel.onLocationPermissionResult]. */
+    fun requestLocationPermissions() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+            LOCATION_PERMISSION_REQUEST,
+        )
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCATION_PERMISSION_REQUEST) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            viewModel.onLocationPermissionResult(granted)
+        }
     }
 
     private fun installCrashCatcher() {

@@ -3,8 +3,6 @@ package com.cabiaoshs.attendance.ui
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -149,15 +147,7 @@ fun SettingsScreen(
 
         SettingLabel("Location permission")
         var permissionMsg by remember { mutableStateOf<String?>(null) }
-        val permissionLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { grants ->
-            permissionMsg = if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-                "Permission granted."
-            } else {
-                "Denied. Enable it in system Settings → Apps → Cabiao SHS Attendance → Permissions."
-            }
-        }
+        val activity = context as? com.cabiaoshs.attendance.MainActivity
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
@@ -168,12 +158,8 @@ fun SettingsScreen(
         if (!granted) {
             OutlinedButton(
                 onClick = {
-                    permissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                        )
-                    )
+                    permissionMsg = "Requested — check the system dialog."
+                    activity?.requestLocationPermissions()
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -183,11 +169,7 @@ fun SettingsScreen(
         permissionMsg?.let {
             Text(
                 text = it,
-                color = if (it.startsWith("Permission granted")) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
+                color = MaterialTheme.colorScheme.error,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 8.dp),
             )

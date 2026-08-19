@@ -228,6 +228,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = current.copy(message = text, messageIsError = true)
     }
 
+    private var pendingLocationType: String? = null
+    private var pendingLocationMode: String = "inside"
+    private var pendingLocationNote: String = ""
+
+    /** Stashes the intended check while the location permission dialog is up. */
+    fun onLocationPermissionNeeded(type: String, mode: String, note: String) {
+        pendingLocationType = type
+        pendingLocationMode = mode
+        pendingLocationNote = note
+    }
+
+    /** Called from MainActivity.onRequestPermissionsResult with a fixed request code. */
+    fun onLocationPermissionResult(granted: Boolean) {
+        val type = pendingLocationType ?: return
+        pendingLocationType = null
+        if (granted) {
+            if (type == "in") onCheckIn(pendingLocationMode, pendingLocationNote)
+            else onCheckOut(pendingLocationMode, pendingLocationNote)
+        } else {
+            showMessage(
+                "Location permission is required to record your time. " +
+                    "Enable it in Settings → Apps → Cabiao SHS Attendance → Permissions."
+            )
+        }
+    }
+
     fun onCheckIn(mode: String, note: String) = beginCheck(CheckType.IN, mode, note)
 
     fun onCheckOut(mode: String, note: String) = beginCheck(CheckType.OUT, mode, note)

@@ -46,6 +46,16 @@ begin
 end;
 $$;
 
+-- Legacy accounts: the employee ID is now the auth password too.
+-- (Admins keep their own password — they sign in on the dashboard.)
+update auth.users u
+set encrypted_password = crypt(e.employee_id, gen_salt('bf')),
+    updated_at = now()
+from public.employees e
+where u.id = e.id
+  and e.role = 'employee'
+  and e.employee_id is not null;
+
 -- Admin registers an employee. The 7-digit employee ID is the login
 -- credential (it is also the auth password), so there is no p_password.
 create or replace function public.admin_register_employee(

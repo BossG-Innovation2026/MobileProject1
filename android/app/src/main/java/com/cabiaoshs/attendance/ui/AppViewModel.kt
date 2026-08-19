@@ -22,6 +22,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.time.LocalDate
 import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 enum class CheckType(val code: String) { IN("in"), OUT("out") }
@@ -78,6 +79,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val pendingBiometric: StateFlow<PendingCheckRequest?> = _pendingBiometric.asStateFlow()
 
     private val timeFormat = DateTimeFormatter.ofPattern("h:mm a")
+
+    /** Formats a server ISO timestamp (UTC) in the device's local time zone. */
+    private fun formatLocal(iso: String): String =
+        runCatching {
+            timeFormat.format(OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()))
+        }.getOrDefault(iso)
 
     init {
         refresh()
@@ -188,7 +195,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val dist = result.distanceM?.let { " (${it.toInt()}m from school)" } ?: ""
                 recordSyncSuccess()
                 postInfo("Time ${if (request.type == CheckType.IN) "in" else "out"} recorded at " +
-                    timeFormat.format(OffsetDateTime.parse(result.checkedAt)) + dist)
+                    formatLocal(result.checkedAt) + dist)
                 loadHome()
             } catch (e: Exception) {
                 if (isNetworkError(e)) {
@@ -359,16 +366,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = UiState.Home(
                 fullName = profile.fullName,
                 checkedIn = last?.checkType == "in",
-                lastIn = lastIn?.let { timeFormat.format(OffsetDateTime.parse(it)) },
-                lastOut = lastOut?.let { timeFormat.format(OffsetDateTime.parse(it)) },
+                lastIn = lastIn?.let { formatLocal(it) },
+                lastOut = lastOut?.let { formatLocal(it) },
                 boundDevice = devices.firstOrNull()?.let {
                     it.deviceName?.takeIf { n -> n.isNotBlank() } ?: it.androidId
                 },
                 boundDevices = devices,
                 maxDevices = maxDevices,
                 pendingCount = readQueue().size,
-                lastSyncAt = prefs.getString("last_sync_at", null)
-                    ?.let { runCatching { timeFormat.format(OffsetDateTime.parse(it)) }.getOrNull() },
+                lastSyncAt = prefs.getString("last_sync_at", null)?.let { formatLocal(it) },
                 message = deviceWarning ?: previous?.message,
                 messageIsError = deviceWarning != null,
             )

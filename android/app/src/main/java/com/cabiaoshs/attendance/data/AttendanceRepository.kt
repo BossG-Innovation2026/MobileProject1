@@ -72,7 +72,7 @@ class AttendanceRepository(private val client: SupabaseClient) {
         val resolved = client.postgrest.rpc(
             "resolve_login",
             buildJsonObject { put("p_employee_id", employeeId) }
-        ).decodeSingle<LoginIdentity>()
+        ).decodeAs<LoginIdentity>()
         client.auth.signInWith(Email) {
             this.email = resolved.email
             this.password = employeeId

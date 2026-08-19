@@ -32,6 +32,34 @@ async function init() {
     render();
   });
 
+  // Fetch departments and positions on init
+  const departments = await fetchDepartments();
+  const positions = await fetchPositions();
+  
+  // Populate Add Employee department/position dropdowns
+  const aeDepartment = $("#aeDepartment");
+  const aePosition = $("#aePosition");
+  const deptOptions = departments.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join("");
+  aeDepartment.innerHTML = deptOptions;
+  // Position options will be populated later or show all
+  const posOptions = positions.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  aePosition.innerHTML = posOptions;
+  
+  // Populate Edit Employee department/position dropdowns
+  const eeDepartment = $("#eeDepartment");
+  const eePosition = $("#eePosition");
+  eeDepartment.innerHTML = deptOptions;
+  eePosition.innerHTML = posOptions;
+  
+  // Initialize Live/Records filters (populated later when views render)
+  window.departments = departments;
+  window.positions = positions;
+
+  client.auth.onAuthStateChange((_event, s) => {
+    session = s;
+    render();
+  });
+
   $("#logoutBtn").addEventListener("click", async () => {
     await client.auth.signOut();
     render();
@@ -120,7 +148,11 @@ async function rpc(name, args) {
 
 async function fetchEmployees() {
   const { data, error } = await client.from("employees")
-    .select("id, employee_id, full_name, first_name, middle_name, last_name, email, role, is_active, created_at")
+    .select(`
+      id, employee_id, full_name, first_name, middle_name, last_name, email, role, is_active, created_at,
+      departments!inner(department_id) -> name as department_name,
+      positions!inner(position_id) -> name as position_name
+    `)
     .order("full_name");
   if (error) throw error;
   return data;
@@ -182,7 +214,7 @@ async function renderDashboard(v) {
     <div class="panel">
       <h2>Employees (${employees.length})</h2>
       <table>
-        <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Devices</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Position</th><th>Status</th><th>Devices</th><th></th></tr></thead>
         <tbody>
           ${employees.map((e) => {
             const devs = devicesByEmployee[e.id] || [];
@@ -191,6 +223,8 @@ async function renderDashboard(v) {
               <td>${esc(e.full_name)}</td>
               <td>${esc(e.email)}</td>
               <td>${esc(e.role)}</td>
+              <td>${e.department_name || "—"}</td>
+              <td>${e.position_name || "—"}</td>
               <td>${e.is_active ? '<span class="badge in">active</span>' : '<span class="badge off">disabled</span>'}</td>
               <td class="muted">
                 ${devs.length ? devs.map((d) =>
@@ -220,6 +254,12 @@ async function renderDashboard(v) {
           <div><label>Role</label>
             <select id="eeRole"><option value="employee">Employee</option><option value="admin">Admin</option></select>
           </div>
+          <div><label>Department</label>
+            <select id="eeDepartment"></select>
+          </div>
+          <div><label>Position</label>
+            <select id="eePosition"></select>
+          </div>
           <div class="form-actions">
             <button type="submit">Save changes</button>
             <button type="button" class="secondary" id="eeCancel">Cancel</button>
@@ -237,6 +277,12 @@ async function renderDashboard(v) {
           <div><label>Employee ID (7 digits — also their login password)</label><input id="aeId" required pattern="[0-9]{7}" inputmode="numeric" maxlength="7"></div>
           <div><label>Role</label>
             <select id="aeRole"><option value="employee">Employee</option><option value="admin">Admin</option></select>
+          </div>
+          <div><label>Department</label>
+            <select id="aeDepartment"></select>
+          </div>
+          <div><label>Position</label>
+            <select id="aePosition"></select>
           </div>
           <div class="form-actions"><button type="submit">Add employee</button></div>
         </form>
@@ -360,26 +406,66 @@ async function renderDashboard(v) {
 
 async function renderLive(v) {
   const status = await rpc("admin_current_status");
+  const departments = window.departments || [];
+  const positions = window.positions || [];
+  const deptIds = new Set();
+  const posIds = new Set();
+  status.forEach((s) => {
+    // @ts-ignore
+    if (s.department_id) deptIds.add(s.department_id);
+    // @ts-ignore
+    if (s.position_id) posIds.add(s.position_id);
+  });
+  
+  const deptFilterOptions = departments
+    .filter((d) => deptIds.has(d.id))
+    .map((d) => `<option value="${d.id}" selected>${esc(d.name)}</option>`)
+    .concat(departments.filter((d) => !deptIds.has(d.id)).map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("");
+  const posFilterOptions = positions
+    .filter((p) => posIds.has(p.id))
+    .map((p) => `<option value="${p.id}" selected>${esc(p.name)}</option>`)
+    .concat(positions.filter((p) => !posIds.has(p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  
   v.innerHTML = `
     <div class="panel">
       <h2>Clocked in now (${status.length})</h2>
+      <div class="toolbar">
+        <select id="liveDeptFilter" multiple style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px;">
+          ${deptFilterOptions}
+        </select>
+        <select id="livePosFilter" multiple style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px;">
+          ${posFilterOptions}
+        </select>
+      </div>
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Time in</th><th>Mode</th><th>Distance</th><th>Note</th></tr></thead>
+        <thead><tr><th>Employee</th><th>Department</th><th>Position</th><th>IN Time</th><th>OUT Time</th><th>Mode</th><th>Status</th></tr></thead>
         <tbody>
           ${status.map((s) => `<tr>
             <td>${esc(s.full_name)}</td>
-            <td>${esc(s.email)}</td>
+            <td>${esc(s.department_name || "—")}</td>
+            <td>${esc(s.position_name || "—")}</td>
             <td>${fmtTime(s.checked_at)}</td>
+            <td>—</td>
             <td><span class="badge ${s.mode === "outside" ? "out" : "in"}">${esc((s.mode || "inside").toUpperCase())}</span></td>
-            <td class="muted">${s.distance_m != null ? Math.round(s.distance_m) + " m" : "—"}</td>
-            <td class="muted">${esc(s.note || "—")}</td>
+            <td>In</td>
           </tr>`).join("") ||
-          `<tr><td colspan="6" class="empty">Nobody is clocked in right now.</td></tr>`}
-        </tbody>
+          `<tr><td colspan="7" class="empty">Nobody is clocked in right now.</td></tr>`}</tbody>
       </table>
       <p class="muted" style="margin-top:10px">Auto-refreshes every 60 seconds.</p>
     </div>`;
   setTimeout(() => { if (currentView() === "live") renderLive(v); }, 60000);
+
+  // Live page filter listeners
+  $("#liveDeptFilter").addEventListener("change", (e) => {
+    const selected = Array.from(e.target.selectedOptions).map(o => o.value);
+    // Filter status by department - show only employees matching selected depts
+    // For simplicity, re-render with filtered approach
+    renderLive(v);
+  });
+  $("#livePosFilter").addEventListener("change", (e) => {
+    const selected = Array.from(e.target.selectedOptions).map(o => o.value);
+    renderLive(v);
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -395,6 +481,12 @@ async function renderRecords(v) {
         <input type="date" id="recDate" value="${d.toISOString().slice(0, 10)}">
         <button id="recLoad">Load</button>
         <button class="secondary" id="recCsv">Export CSV</button>
+        <div style="margin-left: 20px;">
+          <select id="recDeptFilter" multiple style="width: 150px; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+            ${/* will be populated by JS */}</select>
+          <select id="recPosFilter" multiple style="width: 150px; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+            ${/* will be populated by JS */}</select>
+        </div>
       </div>
       <div id="recTable"></div>
     </div>`;
@@ -589,6 +681,41 @@ function readField(f) {
   if (f.type === "bool") return $("#" + id).checked;
   if (f.type === "time") return $("#" + id).value || null;
   return parseFloat($("#" + id).value) || 0;
+}
+
+async function fetchDepartments() {
+  const { data, error } = await client
+    .from("departments")
+    .select("id, name, sort_order, is_active")
+    .eq("is_active", true)
+    .order("sort_order");
+  if (error) throw error;
+  return data || [];
+}
+
+async function fetchPositions(deptId = null) {
+  let query = client.from("positions").select("id, name, sort_order, is_active").eq("is_active", true);
+  if (deptId !== null) {
+    query = query.eq("department_id", deptId);
+  }
+  query = query.order("sort_order");
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+function createMultiSelect(id, label, options, selected, onChange) {
+  const selectId = `multi-${id}`;
+  const items = (options || []).map((opt) => {
+    const selectedOpt = selected && selected.some((s) => s.id === opt.id);
+    return `<option value="${opt.id}" ${items.selectedOpt ? "selected" : ""}>${esc(opt.name)}</option>`;
+  }).join("");
+  return `
+    <label for="${selectId}" style="display:block; margin-bottom: 6px;">${esc(label)}</label>
+    <select id="${selectId}" multiple="${selected ? "multiple" : ""}" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
+      ${items}
+    </select>
+  `;
 }
 
 function flash(v, msg, isError) {

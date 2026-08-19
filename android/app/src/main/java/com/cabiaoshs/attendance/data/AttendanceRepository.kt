@@ -42,6 +42,12 @@ data class DeviceBinding(
     @SerialName("bound_at") val boundAt: String,
 )
 
+@Serializable
+data class DeviceOwner(
+    @SerialName("employee_id") val employeeId: String,
+    @SerialName("full_name") val fullName: String,
+)
+
 class AttendanceRepository(private val client: SupabaseClient) {
 
     suspend fun isLoggedIn(): Boolean = client.auth.currentSessionOrNull() != null
@@ -66,6 +72,16 @@ class AttendanceRepository(private val client: SupabaseClient) {
         client.postgrest.from("devices")
             .select { filter { eq("employee_id", client.auth.currentUserOrNull()!!.id) } }
             .decodeSingle<DeviceBinding>()
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Which account (if any) currently owns the given phone. Null when unbound. */
+    suspend fun deviceOwner(androidId: String): DeviceOwner? = try {
+        client.postgrest.rpc(
+            function = "device_owner",
+            parameters = buildJsonObject { put("p_android_id", androidId) }
+        ).decodeSingle<DeviceOwner>()
     } catch (e: Exception) {
         null
     }

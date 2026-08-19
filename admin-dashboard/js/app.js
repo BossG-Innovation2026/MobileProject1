@@ -189,8 +189,11 @@ async function renderDashboard(v) {
               <td>${esc(e.role)}</td>
               <td>${e.is_active ? '<span class="badge in">active</span>' : '<span class="badge off">disabled</span>'}</td>
               <td class="muted">${dev ? esc(dev.device_name) + " · " + esc(dev.android_id) : "not bound"}</td>
-              <td><button class="secondary toggle-active" data-email="${esc(e.email)}" data-active="${e.is_active}">
-                ${e.is_active ? "Disable" : "Enable"}</button></td>
+              <td>
+                <button class="secondary toggle-active" data-email="${esc(e.email)}" data-active="${e.is_active}">
+                  ${e.is_active ? "Disable" : "Enable"}</button>
+                ${dev ? `<button class="secondary unbind-device" data-email="${esc(e.email)}" data-name="${esc(e.full_name)}">Unbind device</button>` : ""}
+              </td>
             </tr>`;
           }).join("") || `<tr><td colspan="6" class="empty">No employees yet.</td></tr>`}
         </tbody>
@@ -215,6 +218,18 @@ async function renderDashboard(v) {
     const active = btn.dataset.active === "true";
     try {
       await rpc("admin_set_active", { p_email: email, p_active: !active });
+      await renderDashboard(v);
+    } catch (e) {
+      flash(v, String(e.message), true);
+    }
+  }));
+
+  v.querySelectorAll(".unbind-device").forEach((btn) => btn.addEventListener("click", async () => {
+    const email = btn.dataset.email;
+    const name = btn.dataset.name;
+    if (!confirm(`Unbind the phone bound to ${name} (${email})?\nThe employee can then bind a new phone.`)) return;
+    try {
+      await rpc("admin_unbind_device", { p_employee_email: email });
       await renderDashboard(v);
     } catch (e) {
       flash(v, String(e.message), true);

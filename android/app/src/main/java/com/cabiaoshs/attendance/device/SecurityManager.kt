@@ -16,13 +16,18 @@ object SecurityManager {
         val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val deviceSecure = keyguard.isDeviceSecure
 
-        val canUseBiometric = when (
-            BiometricManager.from(context).canAuthenticate(
-                Authenticators.BIOMETRIC_STRONG or Authenticators.BIOMETRIC_WEAK
-            )
-        ) {
-            BiometricManager.BIOMETRIC_SUCCESS -> true
-            else -> false
+        // Vendor (e.g. Honor/MagicOS) biometric services can misbehave; never crash the app.
+        val canUseBiometric = try {
+            when (
+                BiometricManager.from(context).canAuthenticate(
+                    Authenticators.BIOMETRIC_STRONG or Authenticators.BIOMETRIC_WEAK
+                )
+            ) {
+                BiometricManager.BIOMETRIC_SUCCESS -> true
+                else -> false
+            }
+        } catch (_: Exception) {
+            false
         }
 
         return when {

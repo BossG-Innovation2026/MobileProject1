@@ -17,6 +17,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cabiaoshs.attendance.data.SupabaseHolder
 import com.cabiaoshs.attendance.ui.AppViewModel
 import com.cabiaoshs.attendance.ui.CheckType
+import java.io.File
+import java.io.PrintWriter
+import java.io.StringWriter
 
 class MainActivity : FragmentActivity() {
 
@@ -28,7 +31,12 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        SupabaseHolder.init()
+        installCrashCatcher()
+        try {
+            SupabaseHolder.init()
+        } catch (_: Exception) {
+            // A broken supabase client must not kill the app; refresh() shows an error state.
+        }
         viewModel = ViewModelProvider(this)[AppViewModel::class.java]
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -52,6 +60,22 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun installCrashCatcher() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+            try {
+                val stack = StringWriter().apply {
+                    throwable.printStackTrace(PrintWriter(this))
+                }.toString()
+                getSharedPreferences("attendance", MODE_PRIVATE)
+                    .edit().putString("last_crash", stack).apply()
+                File(filesDir, "crash.txt").writeText(stack)
+            } catch (_: Exception) {
+            }
+            previous?.uncaughtException(Thread.currentThread(), throwable)
+        }
+    }
+
     private fun showBiometricPrompt(type: CheckType) {
         val action = if (type == CheckType.IN) "time in" else "time out"
         val prompt = BiometricPrompt(
@@ -72,10 +96,16 @@ class MainActivity : FragmentActivity() {
             }
         )
 
-        val canUseBiometric = BiometricManager.from(this).canAuthenticate(
-            Authenticators.BIOMETRIC_STRONG or Authenticators.BIOMETRIC_WEAK
-        ) == BiometricManager.BIOMETRIC_SUCCESS
+        val canUseBiometric = try {
+            BiometricManager.from(this).canAuthenticate(
+                Authenticators.BIOMETRIC_STRONG or Authenticators.BIOMETRIC_WEAK
+            ) == BiometricManager.BIOMETRIC_SUCCESS
+        } catch (_: Exception) {
+            false
+        }
 
+        // Screen lock (PIN / pattern / password) is ALWAYS allowed; biometrics
+        // are only offered when the device reports them healthy.
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Verify identity")
             .setSubtitle("Confirm to record your $action")

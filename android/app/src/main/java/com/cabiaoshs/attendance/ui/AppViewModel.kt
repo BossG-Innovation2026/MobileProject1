@@ -80,16 +80,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         viewModelScope.launch {
-            if (!isSupabaseConfigured()) {
-                _state.value = UiState.ConfigError
-                return@launch
-            }
-            val lock = SecurityManager.lockType(context)
-            if (lock == LockType.NONE) {
-                _state.value = UiState.LockRequired(lock)
-                return@launch
-            }
             try {
+                if (!isSupabaseConfigured()) {
+                    _state.value = UiState.ConfigError
+                    return@launch
+                }
+                val lock = SecurityManager.lockType(context)
+                if (lock == LockType.NONE) {
+                    _state.value = UiState.LockRequired(lock)
+                    return@launch
+                }
                 if (repo.isLoggedIn()) {
                     loadHome()
                     syncPending()
@@ -316,12 +316,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val profile = repo.myProfile()
             val records = repo.recentRecords()
             val bound = repo.myBoundDevice()
+            val owner = repo.deviceOwner(DeviceIdentity.androidId(context))
+            val myId = repo.currentUserId()
 
             val last = records.firstOrNull()
             val today = LocalDate.now().toString()
             val todayRecords = records.filter { it.checkedAt.take(10) == today }
             val lastIn = todayRecords.firstOrNull { it.checkType == "in" }?.checkedAt
             val lastOut = todayRecords.firstOrNull { it.checkType == "out" }?.checkedAt
+
+            val deviceWarning = owner?.takeIf { it.employeeId != myId }?.let {
+                "This phone is already bound to ${it.fullName}. " +
+                    "You can log in, but check-ins from this phone will be rejected."
+            }
 
             _state.value = UiState.Home(
                 fullName = profile.fullName,
@@ -330,8 +337,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 lastOut = lastOut?.let { timeFormat.format(OffsetDateTime.parse(it)) },
                 boundDevice = bound?.deviceName?.takeIf { it.isNotBlank() } ?: bound?.androidId,
                 pendingCount = readQueue().size,
-                message = previous?.message,
-                messageIsError = previous?.messageIsError ?: true,
+                message = deviceWarning ?: previous?.message,
+                messageIsError = deviceWarning != null,
             )
         } catch (e: Exception) {
             _state.value = UiState.LoginRequired()

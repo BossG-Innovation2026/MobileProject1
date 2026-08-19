@@ -120,7 +120,7 @@ async function rpc(name, args) {
 
 async function fetchEmployees() {
   const { data, error } = await client.from("employees")
-    .select("id, full_name, email, role, is_active, created_at")
+    .select("id, employee_id, full_name, first_name, middle_name, last_name, email, role, is_active, created_at")
     .order("full_name");
   if (error) throw error;
   return data;
@@ -161,7 +161,10 @@ function localDayRange(d) {
 
 async function renderDashboard(v) {
   const [employees, devices] = await Promise.all([fetchEmployees(), fetchDevices()]);
-  const deviceByEmployee = Object.fromEntries(devices.map((d) => [d.employee_id, d]));
+  const devicesByEmployee = {};
+  devices.forEach((d) => {
+    (devicesByEmployee[d.employee_id] ||= []).push(d);
+  });
   const status = await rpc("admin_current_status");
   const [from, to] = localDayRange(new Date());
   const today = await fetchAttendance(from, to);
@@ -179,31 +182,59 @@ async function renderDashboard(v) {
     <div class="panel">
       <h2>Employees (${employees.length})</h2>
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Device</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Devices</th><th></th></tr></thead>
         <tbody>
           ${employees.map((e) => {
-            const dev = deviceByEmployee[e.id];
+            const devs = devicesByEmployee[e.id] || [];
             return `<tr>
+              <td><b>${esc(e.employee_id || "—")}</b></td>
               <td>${esc(e.full_name)}</td>
               <td>${esc(e.email)}</td>
               <td>${esc(e.role)}</td>
               <td>${e.is_active ? '<span class="badge in">active</span>' : '<span class="badge off">disabled</span>'}</td>
-              <td class="muted">${dev ? esc(dev.device_name) + " · " + esc(dev.android_id) : "not bound"}</td>
+              <td class="muted">
+                ${devs.length ? devs.map((d) =>
+                  `<span class="dev-chip">${esc(d.device_name || "phone")} · ${esc(d.android_id)}` +
+                  ` <button class="link remove-device" data-email="${esc(e.email)}" data-android="${esc(d.android_id)}" title="Remove this phone">✕</button></span>`
+                ).join(" ") : "not bound"}
+                ${devs.length ? `<button class="secondary reset-devices" data-email="${esc(e.email)}" data-name="${esc(e.full_name)}">Reset devices</button>` : ""}
+              </td>
               <td>
                 <button class="secondary toggle-active" data-email="${esc(e.email)}" data-active="${e.is_active}">
                   ${e.is_active ? "Disable" : "Enable"}</button>
-                ${dev ? `<button class="secondary unbind-device" data-email="${esc(e.email)}" data-name="${esc(e.full_name)}">Unbind device</button>` : ""}
+                <button class="secondary edit-employee" data-id="${esc(e.employee_id || "")}">Edit</button>
               </td>
             </tr>`;
-          }).join("") || `<tr><td colspan="6" class="empty">No employees yet.</td></tr>`}
+          }).join("") || `<tr><td colspan="7" class="empty">No employees yet.</td></tr>`}
         </tbody>
       </table>
+      <div id="editEmpPanel" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <h3>Edit employee</h3>
+        <form id="editEmpForm">
+          <div><label>Current employee ID</label><input id="eeCurId" readonly></div>
+          <div><label>First name</label><input id="eeFirst" required></div>
+          <div><label>Middle name</label><input id="eeMid"></div>
+          <div><label>Last name</label><input id="eeLast"></div>
+          <div><label>Email</label><input id="eeEmail" type="email" required></div>
+          <div><label>Employee ID (7 digits)</label><input id="eeId" required pattern="[0-9]{7}" inputmode="numeric"></div>
+          <div><label>Role</label>
+            <select id="eeRole"><option value="employee">Employee</option><option value="admin">Admin</option></select>
+          </div>
+          <div class="form-actions">
+            <button type="submit">Save changes</button>
+            <button type="button" class="secondary" id="eeCancel">Cancel</button>
+          </div>
+        </form>
+        <div id="editMsg" style="margin-top:10px"></div>
+      </div>
       <div style="margin-top:14px">
         <h2>Register employee</h2>
         <form id="addEmpForm">
-          <div><label>Full name</label><input id="aeName" required></div>
+          <div><label>First name</label><input id="aeFirst" required></div>
+          <div><label>Middle name</label><input id="aeMid"></div>
+          <div><label>Last name</label><input id="aeLast"></div>
           <div><label>Email</label><input id="aeEmail" type="email" required></div>
-          <div><label>Password</label><input id="aePass" type="password" required minlength="6"></div>
+          <div><label>Employee ID (7 digits — also their login password)</label><input id="aeId" required pattern="[0-9]{7}" inputmode="numeric" maxlength="7"></div>
           <div><label>Role</label>
             <select id="aeRole"><option value="employee">Employee</option><option value="admin">Admin</option></select>
           </div>
@@ -224,10 +255,22 @@ async function renderDashboard(v) {
     }
   }));
 
-  v.querySelectorAll(".unbind-device").forEach((btn) => btn.addEventListener("click", async () => {
+  v.querySelectorAll(".remove-device").forEach((btn) => btn.addEventListener("click", async () => {
+    const email = btn.dataset.email;
+    const androidId = btn.dataset.android;
+    if (!confirm(`Remove the phone ${androidId} from ${email}?\nThe employee can then bind a new phone.`)) return;
+    try {
+      await rpc("admin_unbind_device", { p_employee_email: email, p_android_id: androidId });
+      await renderDashboard(v);
+    } catch (e) {
+      flash(v, String(e.message), true);
+    }
+  }));
+
+  v.querySelectorAll(".reset-devices").forEach((btn) => btn.addEventListener("click", async () => {
     const email = btn.dataset.email;
     const name = btn.dataset.name;
-    if (!confirm(`Unbind the phone bound to ${name} (${email})?\nThe employee can then bind a new phone.`)) return;
+    if (!confirm(`Release ALL phones bound to ${name} (${email})?\nThe employee must bind a phone again before checking in.`)) return;
     try {
       await rpc("admin_unbind_device", { p_employee_email: email });
       await renderDashboard(v);
@@ -236,19 +279,73 @@ async function renderDashboard(v) {
     }
   }));
 
+  const byId = Object.fromEntries(employees.map((e) => [e.employee_id, e]));
+  v.querySelectorAll(".edit-employee").forEach((btn) => btn.addEventListener("click", () => {
+    const emp = byId[btn.dataset.id];
+    if (!emp) return;
+    $("#editEmpPanel").style.display = "block";
+    $("#editEmpPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#eeCurId").value = emp.employee_id || "";
+    $("#eeFirst").value = emp.first_name || "";
+    $("#eeMid").value = emp.middle_name || "";
+    $("#eeLast").value = emp.last_name || "";
+    $("#eeEmail").value = emp.email || "";
+    $("#eeId").value = emp.employee_id || "";
+    $("#eeRole").value = emp.role || "employee";
+    $("#editMsg").textContent = "";
+    $("#editMsg").className = "msg";
+  }));
+  $("#eeCancel").addEventListener("click", () => {
+    $("#editEmpPanel").style.display = "none";
+  });
+  $("#editEmpForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const box = $("#editMsg");
+    const oldId = $("#eeCurId").value.trim();
+    const newId = $("#eeId").value.trim();
+    try {
+      const res = await rpc("admin_update_employee", {
+        p_current_employee_id: oldId,
+        p_email: $("#eeEmail").value.trim(),
+        p_first_name: $("#eeFirst").value.trim(),
+        p_middle_name: $("#eeMid").value.trim() || null,
+        p_last_name: $("#eeLast").value.trim() || null,
+        p_employee_id: newId,
+        p_role: $("#eeRole").value,
+      });
+      box.className = "msg ok";
+      box.textContent = newId !== oldId
+        ? `Saved. The new employee ID ${res.employee_id} is now the login password.`
+        : "Employee updated.";
+      await renderDashboard(v);
+    } catch (err) {
+      box.className = "msg err";
+      box.textContent = err.message || "Failed to update employee.";
+    }
+  });
+
   $("#addEmpForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const box = $("#addMsg");
+    const empId = $("#aeId").value.trim();
+    if (!/^\d{7}$/.test(empId)) {
+      box.className = "msg err";
+      box.textContent = "Employee ID must be exactly 7 digits.";
+      return;
+    }
     try {
-      await rpc("admin_register_employee", {
+      const res = await rpc("admin_register_employee", {
         p_email: $("#aeEmail").value.trim(),
-        p_password: $("#aePass").value,
-        p_full_name: $("#aeName").value.trim(),
+        p_employee_id: empId,
+        p_first_name: $("#aeFirst").value.trim(),
+        p_middle_name: $("#aeMid").value.trim() || null,
+        p_last_name: $("#aeLast").value.trim() || null,
         p_role: $("#aeRole").value,
       });
       box.className = "msg ok";
-      box.textContent = "Employee registered.";
-      $("#aeName").value = ""; $("#aeEmail").value = ""; $("#aePass").value = "";
+      box.textContent = `Registered. Employee ID ${res.employee_id} is also their login password.`;
+      $("#aeFirst").value = ""; $("#aeMid").value = ""; $("#aeLast").value = "";
+      $("#aeEmail").value = ""; $("#aeId").value = "";
       await renderDashboard(v);
     } catch (err) {
       box.className = "msg err";

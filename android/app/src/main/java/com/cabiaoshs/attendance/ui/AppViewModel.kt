@@ -39,6 +39,10 @@ sealed interface UiState {
     data object ConfigError : UiState
     data class LockRequired(val lockType: LockType) : UiState
     data class LoginRequired(val error: String? = null) : UiState
+    data class BindDevice(
+        val message: String? = null,
+        val busy: Boolean = false,
+    ) : UiState
     data class Home(
         val fullName: String,
         val checkedIn: Boolean,
@@ -162,16 +166,46 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun login(email: String, password: String) {
+    fun login(employeeId: String) {
         if (_state.value !is UiState.LoginRequired) return
         viewModelScope.launch {
             _state.value = UiState.Loading
             try {
-                repo.login(email, password)
+                repo.login(employeeId)
+                val devices = repo.myBoundDevices()
+                if (devices.isEmpty()) {
+                    _state.value = UiState.BindDevice()
+                } else {
+                    loadHome()
+                    syncPending()
+                }
+            } catch (e: Exception) {
+                _state.value = UiState.LoginRequired("Invalid employee ID.")
+            }
+        }
+    }
+
+    /** First-login device binding: binds this phone, then opens Home. */
+    fun bindDevice() {
+        if (_state.value !is UiState.BindDevice) return
+        viewModelScope.launch {
+            _state.value = UiState.BindDevice(busy = true)
+            try {
+                repo.bindThisDevice(
+                    androidId = DeviceIdentity.androidId(context),
+                    deviceName = DeviceIdentity.deviceName(context),
+                )
                 loadHome()
                 syncPending()
             } catch (e: Exception) {
-                _state.value = UiState.LoginRequired("Invalid email or password.")
+                val friendly = when {
+                    e.message?.contains("max_devices_reached") == true ->
+                        "This account already has its maximum devices bound. Ask the school admin to release a phone."
+                    e.message?.contains("device_bound_to_other_account") == true ->
+                        "This phone is already bound to another account."
+                    else -> "Could not bind this device. Try again."
+                }
+                _state.value = UiState.BindDevice(message = friendly)
             }
         }
     }

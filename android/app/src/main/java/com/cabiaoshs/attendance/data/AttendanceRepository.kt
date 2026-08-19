@@ -43,7 +43,7 @@ data class EmployeeProfile(
 data class DeviceBinding(
     @SerialName("device_name") val deviceName: String? = null,
     @SerialName("android_id") val androidId: String,
-    @SerialName("bound_at") val boundAt: String,
+    @SerialName("bound_at") val boundAt: String? = null,
 )
 
 @Serializable
@@ -58,11 +58,30 @@ class AttendanceRepository(private val client: SupabaseClient) {
 
     suspend fun currentUserId(): String? = client.auth.currentUserOrNull()?.id
 
-    suspend fun login(email: String, password: String) {
+    suspend fun login(employeeId: String) {
+        // The 7-digit employee ID is also the auth password. Resolve it to
+        // the email first (login runs before any session exists, so a direct
+        // employees query is invisible).
+        val resolved: Map<String, String> = client.postgrest.rpc(
+            "resolve_login",
+            buildJsonObject { put("p_employee_id", employeeId) }
+        )
+        val email = resolved["email"] ?: throw IllegalStateException("employee_not_found")
         client.auth.signInWith(Email) {
-            this.email = email.trim()
-            this.password = password
+            this.email = email
+            this.password = employeeId
         }
+    }
+
+    suspend fun bindThisDevice(androidId: String, deviceName: String) {
+        client.postgrest.rpc(
+            "resolve_device",
+            buildJsonObject {
+                put("p_employee_id", client.auth.currentUserOrNull()!!.id)
+                put("p_android_id", androidId)
+                put("p_device_name", deviceName)
+            }
+        )
     }
 
     suspend fun logout() = client.auth.signOut()

@@ -11,6 +11,7 @@
     --green-light: #e8f5e9;
     --orange: #E65100;
     --red: #B3261E;
+    --red-dark: #8c1a13;
     --bg: #f4f6f4;
     --card: #ffffff;
     --text: #1a1a1a;
@@ -59,6 +60,9 @@
   button.secondary { background: #fff; color: var(--green); border: 1px solid var(--green); }
   button.danger { background: #fff; color: var(--red); border: 1px solid var(--red); }
   button:disabled { opacity: .5; cursor: not-allowed; }
+  button.link { background: none; border: none; color: var(--red); padding: 0 4px; font-size: 13px; }
+  button.link:hover { background: none; color: var(--red-dark); text-decoration: underline; }
+  .dev-chip { display: inline-block; background: var(--green-light); border: 1px solid var(--border); border-radius: 10px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
   main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 60px; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }

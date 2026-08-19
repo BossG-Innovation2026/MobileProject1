@@ -180,6 +180,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     syncPending()
                 }
             } catch (e: Exception) {
+                android.util.Log.w("Attendance", "login failed", e)
                 _state.value = UiState.LoginRequired("Invalid employee ID.")
             }
         }

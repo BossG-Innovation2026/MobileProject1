@@ -34,7 +34,7 @@ android {
     }
 
     signingConfigs {
-        create("debug") {
+        getByName("debug") {
             val keystore = rootProject.file("debug.keystore")
             if (keystore.exists()) {
                 storeFile = keystore

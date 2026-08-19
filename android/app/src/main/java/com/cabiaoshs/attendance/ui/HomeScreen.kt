@@ -69,7 +69,9 @@ fun HomeScreen(
         }
 
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -106,7 +108,7 @@ fun HomeScreen(
                 enabled = !state.busy && !state.checkedIn,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .height(56.dp),
             ) {
                 if (state.busy && state.busyLabel == "Getting your location…") {
                     CircularProgressIndicator(strokeWidth = 2.dp)
@@ -123,7 +125,7 @@ fun HomeScreen(
                 enabled = !state.busy && state.checkedIn,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .height(56.dp),
             ) {
                 Text(
                     text = outLabel,
@@ -160,7 +162,7 @@ fun HomeScreen(
             }
             OutlinedButton(
                 onClick = onSync,
-                enabled = !state.busy && state.pendingCount > 0,
+                enabled = !state.busy,
                 modifier = Modifier.padding(bottom = 8.dp),
             ) {
                 Text("SYNC NOW", fontWeight = FontWeight.Bold)

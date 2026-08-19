@@ -211,7 +211,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun syncPending() {
         viewModelScope.launch {
             val queue = readQueue()
-            if (queue.isEmpty()) return@launch
+            if (queue.isEmpty()) {
+                postInfo("All entries are up to date.")
+                return@launch
+            }
             setBusy(true, "Syncing…")
             try {
                 val androidId = DeviceIdentity.androidId(context)

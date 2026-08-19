@@ -52,6 +52,13 @@ data class DeviceOwner(
     @SerialName("full_name") val fullName: String,
 )
 
+@Serializable
+data class LoginIdentity(
+    val email: String,
+    @SerialName("employee_id") val employeeId: String,
+    @SerialName("full_name") val fullName: String? = null,
+)
+
 class AttendanceRepository(private val client: SupabaseClient) {
 
     suspend fun isLoggedIn(): Boolean = client.auth.currentSessionOrNull() != null
@@ -62,13 +69,12 @@ class AttendanceRepository(private val client: SupabaseClient) {
         // The 7-digit employee ID is also the auth password. Resolve it to
         // the email first (login runs before any session exists, so a direct
         // employees query is invisible).
-        val resolved: Map<String, String> = client.postgrest.rpc(
+        val resolved = client.postgrest.rpc(
             "resolve_login",
             buildJsonObject { put("p_employee_id", employeeId) }
-        )
-        val email = resolved["email"] ?: throw IllegalStateException("employee_not_found")
+        ).decodeSingle<LoginIdentity>()
         client.auth.signInWith(Email) {
-            this.email = email
+            this.email = resolved.email
             this.password = employeeId
         }
     }

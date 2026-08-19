@@ -3,6 +3,7 @@ package com.cabiaoshs.attendance.ui
 import android.app.Application
 import android.content.Context
 import android.location.LocationManager
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cabiaoshs.attendance.data.AttendanceRepository
@@ -92,6 +93,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = context.getSharedPreferences("attendance", Context.MODE_PRIVATE)
     private val repo: AttendanceRepository
         get() = AttendanceRepository(SupabaseHolder.supabase.client)
+
+    companion object {
+        private const val TAG = "Attendance"
+    }
 
     private val _state = MutableStateFlow<UiState>(UiState.Loading)
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -350,26 +355,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Server rules, cached locally so offline checks still classify correctly. */
     private suspend fun fetchCheckRules(): CheckRules {
-        try {
-            val rules = repo.getCheckRules()
-            prefs.edit()
-                .putString("rules_lat", rules.schoolLat.toString())
-                .putString("rules_lng", rules.schoolLng.toString())
-                .putString("rules_radius", rules.checkRadiusM.toString())
-                .putString("rules_max_acc", rules.maxGpsAccuracyM.toString())
-                .apply()
-            return rules
-        } catch (e: Exception) {
-            val lat = prefs.getString("rules_lat", null)?.toDoubleOrNull()
-            val lng = prefs.getString("rules_lng", null)?.toDoubleOrNull()
-            val radius = prefs.getString("rules_radius", null)?.toDoubleOrNull()
-            val maxAcc = prefs.getString("rules_max_acc", null)?.toDoubleOrNull()
-            if (lat != null && lng != null && radius != null && maxAcc != null) {
-                return CheckRules(lat, lng, radius, maxAcc)
+        repeat(2) { attempt ->
+            try {
+                val rules = repo.getCheckRules()
+                prefs.edit()
+                    .putString("rules_lat", rules.schoolLat.toString())
+                    .putString("rules_lng", rules.schoolLng.toString())
+                    .putString("rules_radius", rules.checkRadiusM.toString())
+                    .putString("rules_max_acc", rules.maxGpsAccuracyM.toString())
+                    .apply()
+                return rules
+            } catch (e: Exception) {
+                Log.w(TAG, "getCheckRules attempt ${attempt + 1} failed", e)
+                if (attempt == 0) delay(500)
             }
-            // Defaults mirroring the server seed; refreshed on the next online check.
-            return CheckRules(15.2447, 120.9416, 300.0, 40.0)
         }
+        Log.w(TAG, "getCheckRules failed twice; using cached rules")
+        val lat = prefs.getString("rules_lat", null)?.toDoubleOrNull()
+        val lng = prefs.getString("rules_lng", null)?.toDoubleOrNull()
+        val radius = prefs.getString("rules_radius", null)?.toDoubleOrNull()
+        val maxAcc = prefs.getString("rules_max_acc", null)?.toDoubleOrNull()
+        if (lat != null && lng != null && radius != null && maxAcc != null) {
+            return CheckRules(lat, lng, radius, maxAcc)
+        }
+        // Defaults mirroring the server seed; refreshed on the next online check.
+        return CheckRules(15.2447, 120.9416, 300.0, 40.0)
     }
 
     private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {

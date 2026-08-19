@@ -4,8 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,10 +38,13 @@ fun LoginScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var showPassword by rememberSaveable { mutableStateOf(false) }
+    var validationError by rememberSaveable { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
             .padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -84,7 +90,7 @@ fun LoginScreen(
                 .padding(top = 12.dp),
         )
 
-        error?.let {
+        (validationError ?: error)?.let {
             Text(
                 text = it,
                 color = MaterialTheme.colorScheme.error,
@@ -95,8 +101,14 @@ fun LoginScreen(
         }
 
         Button(
-            onClick = { onLogin(email, password) },
-            enabled = email.isNotBlank() && password.isNotBlank(),
+            onClick = {
+                if (email.isBlank() || password.isBlank()) {
+                    validationError = "Enter your email and password."
+                } else {
+                    validationError = null
+                    onLogin(email, password)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 24.dp),

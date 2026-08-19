@@ -139,7 +139,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onBiometricCancel() {
-        _pendingBiometric.value = null
+        if (_pendingBiometric.value != null) {
+            _pendingBiometric.value = null
+            val current = _state.value as? UiState.Home
+            if (current != null) {
+                _state.value = current.copy(message = "Verification cancelled.", messageIsError = false)
+            }
+        }
     }
 
     private fun beginCheck(type: CheckType, mode: String, note: String) {

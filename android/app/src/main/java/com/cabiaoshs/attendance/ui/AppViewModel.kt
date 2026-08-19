@@ -36,6 +36,7 @@ sealed interface UiState {
         val lastOut: String? = null,
         val boundDevice: String? = null,
         val pendingCount: Int = 0,
+        val lastSyncAt: String? = null,
         val busy: Boolean = false,
         val busyLabel: String? = null,
         val message: String? = null,
@@ -181,6 +182,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 val dist = result.distanceM?.let { " (${it.toInt()}m from school)" } ?: ""
+                recordSyncSuccess()
                 postInfo("Time ${if (request.type == CheckType.IN) "in" else "out"} recorded at " +
                     timeFormat.format(OffsetDateTime.parse(result.checkedAt)) + dist)
                 loadHome()
@@ -243,6 +245,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 writeQueue(queue)
+                if (synced > 0 || queue.isEmpty()) recordSyncSuccess()
                 val msg = when {
                     synced > 0 && kept > 0 -> "$synced synced; still offline for the rest."
                     synced > 0 -> "$synced pending entr${if (synced == 1) "y" else "ies"} synced."
@@ -313,6 +316,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = current.copy(pendingCount = readQueue().size)
     }
 
+    private fun recordSyncSuccess() {
+        prefs.edit().putString("last_sync_at", OffsetDateTime.now().toString()).apply()
+        val current = _state.value as? UiState.Home ?: return
+        _state.value = current.copy(
+            lastSyncAt = timeFormat.format(OffsetDateTime.now()),
+            pendingCount = readQueue().size,
+        )
+    }
+
     /* ---------------- state helpers ---------------- */
 
     private suspend fun loadHome() {
@@ -343,6 +355,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 lastOut = lastOut?.let { timeFormat.format(OffsetDateTime.parse(it)) },
                 boundDevice = bound?.deviceName?.takeIf { it.isNotBlank() } ?: bound?.androidId,
                 pendingCount = readQueue().size,
+                lastSyncAt = prefs.getString("last_sync_at", null)
+                    ?.let { runCatching { timeFormat.format(OffsetDateTime.parse(it)) }.getOrNull() },
                 message = deviceWarning ?: previous?.message,
                 messageIsError = deviceWarning != null,
             )
@@ -370,14 +384,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun isNetworkError(e: Exception): Boolean {
-        if (e is IOException) return true
-        val msg = (e.message ?: "").lowercase()
-        return msg.contains("http") || msg.contains("connectexception") ||
-            msg.contains("unknownhost") || msg.contains("timeout") ||
-            msg.contains("socket") || msg.contains("broken pipe") ||
-            msg.contains("network is unreachable")
-    }
+    private fun isNetworkError(e: Exception): Boolean = e is IOException
 
     private fun friendlyError(e: Exception): String {
         val msg = e.message ?: e.javaClass.simpleName

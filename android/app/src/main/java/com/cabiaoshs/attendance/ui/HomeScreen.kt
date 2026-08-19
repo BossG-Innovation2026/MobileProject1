@@ -138,27 +138,32 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(bottom = 8.dp),
         ) {
-            if (state.pendingCount > 0) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                ) {
-                    Text(
-                        text = "${state.pendingCount} pending entr${if (state.pendingCount == 1) "y" else "ies"} — saved offline",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Text(
-                        text = "  Sync now",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .clickable(onClick = onSync)
-                            .padding(4.dp),
-                    )
+            val syncing = state.busy && state.busyLabel == "Syncing…"
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(bottom = 4.dp),
+            ) {
+                val statusText = when {
+                    syncing && state.pendingCount > 0 ->
+                        "Syncing… (${state.pendingCount} remaining)"
+                    state.pendingCount > 0 ->
+                        "${state.pendingCount} pending entr${if (state.pendingCount == 1) "y" else "ies"} — saved offline"
+                    state.lastSyncAt != null -> "All synced · Last sync ${state.lastSyncAt}"
+                    else -> "All synced"
                 }
+                Text(
+                    text = statusText,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            OutlinedButton(
+                onClick = onSync,
+                enabled = !state.busy && state.pendingCount > 0,
+                modifier = Modifier.padding(bottom = 8.dp),
+            ) {
+                Text("SYNC NOW", fontWeight = FontWeight.Bold)
             }
 
             val summary = buildString {

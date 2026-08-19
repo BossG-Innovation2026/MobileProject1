@@ -132,21 +132,25 @@ class AttendanceRepository(private val client: SupabaseClient) {
         mode: String,
         checkedAt: String,
         note: String,
-    ): CheckResult =
-        client.postgrest.rpc(
-            function = function,
-            parameters = buildJsonObject {
-                put("p_lat", lat)
-                put("p_lng", lng)
-                put("p_accuracy", accuracy.toDouble())
-                put("p_android_id", androidId)
-                put("p_device_name", deviceName)
-                put("p_biometric", biometric)
-                put("p_mode", mode)
-                put("p_checked_at", checkedAt)
-                put("p_note", note)
-            }
-        ).decodeAs<CheckResult>()
+    ): CheckResult {
+        val params = buildJsonObject {
+            put("p_lat", lat)
+            put("p_lng", lng)
+            put("p_accuracy", accuracy.toDouble())
+            put("p_android_id", androidId)
+            put("p_device_name", deviceName)
+            put("p_biometric", biometric)
+            put("p_mode", mode)
+            put("p_checked_at", checkedAt)
+            put("p_note", note)
+        }
+        return try {
+            client.postgrest.rpc(function = function, parameters = params).decodeAs<CheckResult>()
+        } catch (e: Exception) {
+            android.util.Log.w("Attendance", "rpc $function failed", e)
+            throw e
+        }
+    }
 }
 
 /** True when the Supabase project credentials were filled in. */

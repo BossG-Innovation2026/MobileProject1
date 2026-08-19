@@ -82,6 +82,7 @@ fun App(viewModel: AppViewModel = viewModel()) {
                         onCheckOut = viewModel::onCheckOut,
                         onOpenSettings = { showSettings = true },
                         onSync = viewModel::syncPending,
+                        onRefreshGps = viewModel::refreshGps,
                     )
                 }
             }

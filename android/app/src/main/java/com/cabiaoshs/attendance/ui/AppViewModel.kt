@@ -2,6 +2,7 @@ package com.cabiaoshs.attendance.ui
 
 import android.app.Application
 import android.content.Context
+import android.location.LocationManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cabiaoshs.attendance.data.AttendanceRepository
@@ -13,10 +14,14 @@ import com.cabiaoshs.attendance.device.LockType
 import com.cabiaoshs.attendance.device.SecurityManager
 import com.cabiaoshs.attendance.location.LocationFetcher
 import io.github.jan.supabase.exceptions.HttpRequestException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -26,6 +31,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 enum class CheckType(val code: String) { IN("in"), OUT("out") }
+
+enum class GpsStatus { GOOD, WEAK, NONE }
 
 sealed interface UiState {
     data object Loading : UiState
@@ -40,6 +47,7 @@ sealed interface UiState {
         val boundDevice: String? = null,
         val boundDevices: List<DeviceBinding> = emptyList(),
         val maxDevices: Int = 2,
+        val gpsStatus: GpsStatus = GpsStatus.NONE,
         val pendingCount: Int = 0,
         val lastSyncAt: String? = null,
         val busy: Boolean = false,
@@ -80,11 +88,51 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val timeFormat = DateTimeFormatter.ofPattern("h:mm a")
 
+    private var gpsJob: Job? = null
+
     /** Formats a server ISO timestamp (UTC) in the device's local time zone. */
     private fun formatLocal(iso: String): String =
         runCatching {
             timeFormat.format(OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()))
         }.getOrDefault(iso)
+
+    /** Periodically reads the GPS status while the Home screen is shown. */
+    fun startGpsMonitor() {
+        if (gpsJob?.isActive == true) return
+        gpsJob = viewModelScope.launch {
+            while (isActive) {
+                refreshGps()
+                delay(10_000)
+            }
+        }
+    }
+
+    /** One immediate GPS status read (also used by the indicator tap). */
+    fun refreshGps() {
+        viewModelScope.launch {
+            val current = _state.value as? UiState.Home ?: return@launch
+            _state.value = current.copy(gpsStatus = readGpsStatus())
+        }
+    }
+
+    private suspend fun readGpsStatus(): GpsStatus {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            ?: return GpsStatus.NONE
+        if (!lm.isLocationEnabled) return GpsStatus.NONE
+        return withTimeoutOrNull(5000) {
+            try {
+                val fix = LocationFetcher(context).fetchValid(maxAccuracyMeters = 80f, attempts = 1)
+                if (fix.accuracy <= 30f) GpsStatus.GOOD else GpsStatus.WEAK
+            } catch (e: Exception) {
+                GpsStatus.NONE
+            }
+        } ?: GpsStatus.NONE
+    }
+
+    override fun onCleared() {
+        gpsJob?.cancel()
+        super.onCleared()
+    }
 
     init {
         refresh()
@@ -129,6 +177,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun logout() {
+        gpsJob?.cancel()
         viewModelScope.launch {
             try {
                 repo.logout()
@@ -378,6 +427,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 message = deviceWarning ?: previous?.message,
                 messageIsError = deviceWarning != null,
             )
+            startGpsMonitor()
         } catch (e: Exception) {
             _state.value = UiState.LoginRequired()
         }

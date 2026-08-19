@@ -1,7 +1,9 @@
 package com.cabiaoshs.attendance.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +28,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,6 +44,7 @@ fun HomeScreen(
     onCheckOut: (mode: String, note: String) -> Unit,
     onOpenSettings: () -> Unit,
     onSync: () -> Unit,
+    onRefreshGps: () -> Unit,
 ) {
     var mode by rememberSaveable { mutableStateOf("inside") }
     var note by rememberSaveable { mutableStateOf("") }
@@ -51,21 +60,49 @@ fun HomeScreen(
         verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(top = 24.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
         ) {
-            Text(
-                text = "Cabiao SHS Attendance",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+            val gpsColor = when (state.gpsStatus) {
+                GpsStatus.GOOD -> Color(0xFF2E7D32)
+                GpsStatus.WEAK -> Color(0xFFEF6C00)
+                GpsStatus.NONE -> Color(0xFFC62828)
+            }
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(gpsColor)
+                    .clickable(onClick = onRefreshGps)
+                    .semantics {
+                        contentDescription = when (state.gpsStatus) {
+                            GpsStatus.GOOD -> "GPS good"
+                            GpsStatus.WEAK -> "GPS weak"
+                            GpsStatus.NONE -> "GPS none"
+                        }
+                    },
             )
-            Text(
-                text = state.fullName,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.weight(1f))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 24.dp),
+            ) {
+                Text(
+                    text = "Cabiao SHS Attendance",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = state.fullName,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.size(14.dp))
         }
 
         Column(

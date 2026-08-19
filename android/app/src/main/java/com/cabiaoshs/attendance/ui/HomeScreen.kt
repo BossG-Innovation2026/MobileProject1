@@ -1,5 +1,9 @@
 package com.cabiaoshs.attendance.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,12 +34,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 
 @Composable
 fun HomeScreen(
@@ -45,12 +51,49 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onSync: () -> Unit,
     onRefreshGps: () -> Unit,
+    onMessage: (String) -> Unit,
 ) {
     var mode by rememberSaveable { mutableStateOf("inside") }
     var note by rememberSaveable { mutableStateOf("") }
     val outside = mode == "outside"
     val inLabel = if (outside) "CHECK IN" else "TIME IN"
     val outLabel = if (outside) "CHECK OUT" else "TIME OUT"
+
+    val context = LocalContext.current
+    var pendingType by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingMode by rememberSaveable { mutableStateOf("inside") }
+    var pendingNote by rememberSaveable { mutableStateOf("") }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val type = pendingType
+        pendingType = null
+        if (granted && type != null) {
+            if (type == "in") onCheckIn(pendingMode, pendingNote)
+            else onCheckOut(pendingMode, pendingNote)
+        } else if (type != null) {
+            onMessage("Location permission is required to record your time. Enable it in Settings → Apps → Cabiao SHS Attendance → Permissions.")
+        }
+    }
+    fun requestOrCheck(type: String) {
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            if (type == "in") onCheckIn(mode, note) else onCheckOut(mode, note)
+        } else {
+            pendingType = type
+            pendingMode = mode
+            pendingNote = note
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -141,7 +184,7 @@ fun HomeScreen(
             }
 
             Button(
-                onClick = { onCheckIn(mode, note) },
+                onClick = { requestOrCheck("in") },
                 enabled = !state.busy && !state.checkedIn,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -158,7 +201,7 @@ fun HomeScreen(
                 }
             }
             OutlinedButton(
-                onClick = { onCheckOut(mode, note) },
+                onClick = { requestOrCheck("out") },
                 enabled = !state.busy && state.checkedIn,
                 modifier = Modifier
                     .fillMaxWidth()

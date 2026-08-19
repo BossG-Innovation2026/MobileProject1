@@ -222,6 +222,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Shows a transient Home message (e.g. permission-related hints). */
+    fun showMessage(text: String) {
+        val current = _state.value as? UiState.Home ?: return
+        _state.value = current.copy(message = text, messageIsError = true)
+    }
+
     fun onCheckIn(mode: String, note: String) = beginCheck(CheckType.IN, mode, note)
 
     fun onCheckOut(mode: String, note: String) = beginCheck(CheckType.OUT, mode, note)

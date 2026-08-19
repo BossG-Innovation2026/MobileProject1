@@ -1,7 +1,5 @@
 package com.cabiaoshs.attendance
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
@@ -9,7 +7,6 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
@@ -23,10 +20,6 @@ import java.io.StringWriter
 
 class MainActivity : FragmentActivity() {
 
-    private companion object {
-        const val LOCATION_PERMISSION_REQUEST = 1001
-    }
-
     private lateinit var viewModel: AppViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,12 +32,6 @@ class MainActivity : FragmentActivity() {
         }
         viewModel = ViewModelProvider(this)[AppViewModel::class.java]
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestLocationPermissions()
-        }
-
         setContent {
             val pending by viewModel.pendingBiometric.collectAsStateWithLifecycle()
             LaunchedEffect(pending) {
@@ -53,20 +40,6 @@ class MainActivity : FragmentActivity() {
             }
             App(viewModel)
         }
-    }
-
-    private fun requestLocationPermissions() {
-        // FragmentActivity validates request codes as 16-bit, so use the
-        // classic API instead of registerForActivityResult (whose registry
-        // generates >16-bit codes and crashes on launch).
-        ActivityCompat.requestPermissions(
-            this,
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-            ),
-            LOCATION_PERMISSION_REQUEST
-        )
     }
 
     override fun onRequestPermissionsResult(

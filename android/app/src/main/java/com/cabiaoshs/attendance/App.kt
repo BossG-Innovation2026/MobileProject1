@@ -113,6 +113,7 @@ fun App(viewModel: AppViewModel = viewModel()) {
                             onOpenSettings = { showSettings = true },
                             onSync = viewModel::syncPending,
                             onRefreshGps = viewModel::refreshGps,
+                            onMessage = viewModel::showMessage,
                         )
                     }
                 }

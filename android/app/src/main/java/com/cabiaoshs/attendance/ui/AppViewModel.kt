@@ -12,6 +12,7 @@ import com.cabiaoshs.attendance.device.DeviceIdentity
 import com.cabiaoshs.attendance.device.LockType
 import com.cabiaoshs.attendance.device.SecurityManager
 import com.cabiaoshs.attendance.location.LocationFetcher
+import io.github.jan.supabase.exceptions.HttpRequestException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -395,7 +396,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun isNetworkError(e: Exception): Boolean = e is IOException
+    private fun isNetworkError(e: Exception): Boolean {
+        if (e is IOException) return true
+        if (e is HttpRequestException) return true
+        val msg = e.message ?: return false
+        val m = msg.lowercase()
+        return listOf(
+            "failed to connect",
+            "unable to resolve host",
+            "connection refused",
+            "connection reset",
+            "timed out",
+            "network is unreachable",
+            "no internet",
+        ).any { m.contains(it) }
+    }
 
     private fun friendlyError(e: Exception): String {
         val msg = e.message ?: e.javaClass.simpleName

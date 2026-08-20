@@ -107,6 +107,23 @@
   .dept-head td { background: #f1f6f1; color: var(--green-dark); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
   .live-gray td { color: var(--muted); background: #fafbfa; }
   .live-gray:hover td { background: #f2f4f2; }
+  .dept-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .dept-card {
+    text-align: left;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    cursor: pointer;
+    font: inherit;
+    color: var(--text);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .dept-card:hover { border-color: var(--green); box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  .dept-card .dept-name { font-size: 13px; color: var(--green-dark); font-weight: 700; margin-bottom: 8px; }
+  .dept-card .num { font-size: 30px; font-weight: 800; color: var(--green); }
+  .dept-card .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+  #backToDepts { margin-bottom: 12px; }
 </style>
 </head>
 <body>

@@ -233,7 +233,7 @@ async function renderDashboard(v) {
     rpc("admin_daily_pairs", { p_from: from, p_to: to }),
     fetchAttendance(from, to),
   ]);
-  const deptName = (id) => (departments.find((d) => d.id === id) || {}).name || "—";
+  const deptName = (id) => (departments.find((d) => d.id === id) || {}).name || null;
   const posName = (id) => (positions.find((p) => p.id === id) || {}).name || "—";
   const active = employees.filter((e) => e.is_active);
   const pairByEmp = new Map(pairs.map((p) => [p.employee_id, p]));
@@ -244,12 +244,18 @@ async function renderDashboard(v) {
     return {
       emp,
       p,
-      deptName: p.department_name || deptName(emp.department_id),
+      deptName: p.department_name || deptName(emp.department_id) || "—",
       posName: p.position_name || posName(emp.position_id),
     };
   });
 
   const clockedIn = window.liveRows.filter((r) => r.p.in_at && !r.p.out_at).length;
+  const sel = window.selectedDept;
+  const selName = sel
+    ? (departments.find((d) => d.id === sel) || {}).name
+      || (window.liveRows.find((r) => r.emp.department_id === sel) || {}).deptName
+      || "—"
+    : "";
 
   v.innerHTML = `
     <div class="cards">
@@ -258,72 +264,75 @@ async function renderDashboard(v) {
       <div class="card"><div class="num">${active.length}</div><div class="lbl">Active employees</div></div>
     </div>
     <div class="panel">
-      <h2>Live attendance</h2>
-      <div class="toolbar">
-        <div>
-          <label>Department</label>
-          <select id="liveDeptFilter" multiple>${filterOptions(departments, window.liveDeptSel)}</select>
-        </div>
-        <div>
-          <label>Position</label>
-          <select id="livePosFilter" multiple>${filterOptions(positions, window.livePosSel)}</select>
-        </div>
-      </div>
+      <h2>${sel ? esc(selName) + " — live attendance" : "Live attendance"}</h2>
+      ${sel ? `<button class="secondary" id="backToDepts">← All departments</button>` : ""}
       <div id="liveTableWrap"></div>
       <p class="muted" style="margin-top:10px">Auto-refreshes every 60 seconds.</p>
     </div>`;
 
-  $("#liveTableWrap").innerHTML = buildLiveTable();
+  if (sel) {
+    $("#backToDepts").addEventListener("click", () => {
+      window.selectedDept = null;
+      renderDashboard(v);
+    });
+  }
+  $("#liveTableWrap").innerHTML = sel ? buildDeptTable(sel) : deptCardsHtml(departments);
 
-  $("#liveDeptFilter").addEventListener("change", () => {
-    window.liveDeptSel = Array.from($("#liveDeptFilter").selectedOptions).map((o) => o.value);
-    $("#liveTableWrap").innerHTML = buildLiveTable();
-  });
-  $("#livePosFilter").addEventListener("change", () => {
-    window.livePosSel = Array.from($("#livePosFilter").selectedOptions).map((o) => o.value);
-    $("#liveTableWrap").innerHTML = buildLiveTable();
-  });
+  if (!sel) {
+    v.querySelectorAll(".dept-card").forEach((btn) => btn.addEventListener("click", () => {
+      window.selectedDept = btn.dataset.dept;
+      renderDashboard(v);
+    }));
+  }
 
   setTimeout(() => { if (currentView() === "dashboard") renderDashboard(v); }, 60000);
 }
 
-function liveFilteredRows() {
-  const depts = new Set(window.liveDeptSel || []);
-  const poss = new Set(window.livePosSel || []);
-  return (window.liveRows || []).filter((r) =>
-    (!depts.size || depts.has(r.emp.department_id)) &&
-    (!poss.size || poss.has(r.emp.position_id)));
+// One clickable card per department: big number = clocked in right now,
+// secondary line = "of N active". Clicking drills into that department.
+function deptCardsHtml(departments) {
+  const byDept = new Map();
+  (window.liveRows || []).forEach((r) => {
+    const id = r.emp.department_id;
+    if (!byDept.has(id)) byDept.set(id, []);
+    byDept.get(id).push(r);
+  });
+  const depts = departments
+    .filter((d) => byDept.has(d.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!depts.length) return `<div class="empty">No active employees yet.</div>`;
+  return `<div class="dept-cards">
+    ${depts.map((d) => {
+      const rows = byDept.get(d.id);
+      const inCount = rows.filter((r) => r.p.in_at && !r.p.out_at).length;
+      return `<button type="button" class="dept-card" data-dept="${d.id}">
+        <div class="dept-name">${esc(d.name)}</div>
+        <div class="num">${inCount}</div>
+        <div class="lbl">clocked in · of ${rows.length} active</div>
+      </button>`;
+    }).join("")}
+  </div>`;
 }
 
-// One table, two sections: "Clocked in" (grouped by department subheading
-// rows) on top, "Not clocked in" (flat, grayed) below.
-function buildLiveTable() {
-  const filtered = liveFilteredRows();
-  const clockedIn = filtered.filter((r) => r.p.in_at && !r.p.out_at);
-  const notClockedIn = filtered.filter((r) => !(r.p.in_at && !r.p.out_at));
+// Drill-down for one department: "Clocked in" on top, "Not clocked in"
+// (grayed) below.
+function buildDeptTable(deptId) {
+  const rows = (window.liveRows || []).filter((r) => r.emp.department_id === deptId);
+  const clockedIn = rows.filter((r) => r.p.in_at && !r.p.out_at)
+    .sort((a, b) => (a.posName || "").localeCompare(b.posName || "") ||
+      a.emp.full_name.localeCompare(b.emp.full_name));
+  const notClockedIn = rows.filter((r) => !(r.p.in_at && !r.p.out_at))
+    .sort((a, b) => a.emp.full_name.localeCompare(b.emp.full_name));
 
-  const groups = new Map();
-  clockedIn.forEach((r) => {
-    if (!groups.has(r.deptName)) groups.set(r.deptName, []);
-    groups.get(r.deptName).push(r);
-  });
-  const deptGroups = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  deptGroups.forEach(([, list]) => list.sort((a, b) =>
-    (a.posName || "").localeCompare(b.posName || "") ||
-    a.emp.full_name.localeCompare(b.emp.full_name)));
-  notClockedIn.sort((a, b) => a.emp.full_name.localeCompare(b.emp.full_name));
-
-  const thead = `<thead><tr><th>Employee</th><th>Department</th><th>Position</th><th>IN Time</th><th>OUT Time</th><th>Duration</th><th>Mode</th><th>Status</th></tr></thead>`;
-  const rows = `
-    <tr class="section-head"><td colspan="8">Clocked in (${clockedIn.length})</td></tr>
-    ${deptGroups.map(([dept, list]) => `
-      <tr class="dept-head"><td colspan="8">${esc(dept)}</td></tr>
-      ${list.map((r) => liveRowHtml(r, false)).join("")}
-    `).join("") || `<tr><td colspan="8" class="empty">Nobody is clocked in right now.</td></tr>`}
-    <tr class="section-head"><td colspan="8">Not clocked in (${notClockedIn.length})</td></tr>
+  const thead = `<thead><tr><th>Employee</th><th>Position</th><th>IN Time</th><th>OUT Time</th><th>Duration</th><th>Mode</th><th>Status</th></tr></thead>`;
+  const body = `
+    <tr class="section-head"><td colspan="7">Clocked in (${clockedIn.length})</td></tr>
+    ${clockedIn.map((r) => liveRowHtml(r, false)).join("") ||
+      `<tr><td colspan="7" class="empty">Nobody from this department is clocked in right now.</td></tr>`}
+    <tr class="section-head"><td colspan="7">Not clocked in (${notClockedIn.length})</td></tr>
     ${notClockedIn.map((r) => liveRowHtml(r, true)).join("") ||
-      `<tr><td colspan="8" class="empty">All active employees are clocked in.</td></tr>`}`;
-  return `<table>${thead}<tbody>${rows}</tbody></table>`;
+      `<tr><td colspan="7" class="empty">Everyone in this department is clocked in.</td></tr>`}`;
+  return `<table>${thead}<tbody>${body}</tbody></table>`;
 }
 
 function liveRowHtml(r, grayed) {
@@ -332,7 +341,6 @@ function liveRowHtml(r, grayed) {
   const mode = p.out_mode || p.in_mode;
   return `<tr class="${grayed ? "live-gray" : ""}">
     <td>${esc(r.emp.full_name)}</td>
-    <td>${esc(r.deptName)}</td>
     <td>${esc(r.posName)}</td>
     <td>${p.in_at ? fmtTime(p.in_at) : "—"}</td>
     <td>${p.out_at ? fmtTime(p.out_at) : "—"}</td>

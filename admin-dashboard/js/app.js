@@ -251,11 +251,10 @@ async function renderDashboard(v) {
 
   const clockedIn = window.liveRows.filter((r) => r.p.in_at && !r.p.out_at).length;
   const sel = window.selectedDept;
-  const selName = sel
-    ? (departments.find((d) => d.id === sel) || {}).name
+  const selName = sel === "all" ? "All departments"
+    : (departments.find((d) => d.id === sel) || {}).name
       || (window.liveRows.find((r) => r.emp.department_id === sel) || {}).deptName
-      || "—"
-    : "";
+      || "—";
 
   v.innerHTML = `
     <div class="cards">
@@ -265,7 +264,7 @@ async function renderDashboard(v) {
     </div>
     <div class="panel">
       <h2>${sel ? esc(selName) + " — live attendance" : "Live attendance"}</h2>
-      ${sel ? `<button class="secondary" id="backToDepts">← All departments</button>` : ""}
+      ${sel ? `<button class="secondary" id="backToDepts">← Departments</button>` : ""}
       <div id="liveTableWrap"></div>
       <p class="muted" style="margin-top:10px">Auto-refreshes every 60 seconds.</p>
     </div>`;
@@ -276,7 +275,9 @@ async function renderDashboard(v) {
       renderDashboard(v);
     });
   }
-  $("#liveTableWrap").innerHTML = sel ? buildDeptTable(sel) : deptCardsHtml(departments);
+  $("#liveTableWrap").innerHTML = sel === "all" ? buildAllTable()
+    : sel ? buildDeptTable(sel)
+    : deptCardsHtml(departments);
 
   if (!sel) {
     v.querySelectorAll(".dept-card").forEach((btn) => btn.addEventListener("click", () => {
@@ -301,7 +302,14 @@ function deptCardsHtml(departments) {
     .filter((d) => byDept.has(d.id))
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!depts.length) return `<div class="empty">No active employees yet.</div>`;
+  const allRows = window.liveRows || [];
+  const totalIn = allRows.filter((r) => r.p.in_at && !r.p.out_at).length;
   return `<div class="dept-cards">
+    <button type="button" class="dept-card all" data-dept="all">
+      <div class="dept-name">All departments</div>
+      <div class="num">${totalIn}</div>
+      <div class="lbl">clocked in · of ${allRows.length} active</div>
+    </button>
     ${depts.map((d) => {
       const rows = byDept.get(d.id);
       const inCount = rows.filter((r) => r.p.in_at && !r.p.out_at).length;
@@ -312,6 +320,32 @@ function deptCardsHtml(departments) {
       </button>`;
     }).join("")}
   </div>`;
+}
+
+// Full grouped table: every department under its own subheading, with
+// clocked-in employees first and not-clocked-in (grayed) below.
+function buildAllTable() {
+  const byDept = new Map();
+  (window.liveRows || []).forEach((r) => {
+    if (!byDept.has(r.deptName)) byDept.set(r.deptName, []);
+    byDept.get(r.deptName).push(r);
+  });
+  const deptNames = [...byDept.keys()].sort((a, b) => a.localeCompare(b));
+
+  const thead = `<thead><tr><th>Employee</th><th>Department</th><th>Position</th><th>IN Time</th><th>OUT Time</th><th>Duration</th><th>Mode</th><th>Status</th></tr></thead>`;
+  const body = deptNames.map((dept) => {
+    const rows = byDept.get(dept);
+    const clockedIn = rows.filter((r) => r.p.in_at && !r.p.out_at)
+      .sort((a, b) => (a.posName || "").localeCompare(b.posName || "") ||
+        a.emp.full_name.localeCompare(b.emp.full_name));
+    const notClockedIn = rows.filter((r) => !(r.p.in_at && !r.p.out_at))
+      .sort((a, b) => a.emp.full_name.localeCompare(b.emp.full_name));
+    return `
+      <tr class="dept-head"><td colspan="8">${esc(dept)}</td></tr>
+      ${clockedIn.map((r) => liveRowHtml(r, false, true)).join("")}
+      ${notClockedIn.map((r) => liveRowHtml(r, true, true)).join("")}`;
+  }).join("") || `<tr><td colspan="8" class="empty">No active employees yet.</td></tr>`;
+  return `<table>${thead}<tbody>${body}</tbody></table>`;
 }
 
 // Drill-down for one department: "Clocked in" on top, "Not clocked in"
@@ -335,12 +369,13 @@ function buildDeptTable(deptId) {
   return `<table>${thead}<tbody>${body}</tbody></table>`;
 }
 
-function liveRowHtml(r, grayed) {
+function liveRowHtml(r, grayed, withDept) {
   const p = r.p;
   const overridden = p.in_status === "overridden" || p.out_status === "overridden";
   const mode = p.out_mode || p.in_mode;
   return `<tr class="${grayed ? "live-gray" : ""}">
     <td>${esc(r.emp.full_name)}</td>
+    ${withDept ? `<td>${esc(r.deptName)}</td>` : ""}
     <td>${esc(r.posName)}</td>
     <td>${p.in_at ? fmtTime(p.in_at) : "—"}</td>
     <td>${p.out_at ? fmtTime(p.out_at) : "—"}</td>

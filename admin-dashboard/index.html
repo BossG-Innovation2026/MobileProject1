@@ -97,10 +97,16 @@
   .login-wrap .panel h2 { font-size: 18px; text-align: center; }
   .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
   .toolbar input { max-width: 200px; }
+  .toolbar select { width: 160px; }
+  .toolbar label { margin-bottom: 2px; }
   .empty { color: var(--muted); padding: 18px; text-align: center; }
   .muted { color: var(--muted); font-size: 12px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+  .section-head td { background: var(--green-light); color: var(--green-dark); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .dept-head td { background: #f1f6f1; color: var(--green-dark); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .live-gray td { color: var(--muted); background: #fafbfa; }
+  .live-gray:hover td { background: #f2f4f2; }
 </style>
 </head>
 <body>
@@ -108,7 +114,7 @@
   <h1>Cabiao SHS — Attendance</h1>
   <nav>
     <a href="#/dashboard" data-view="dashboard">Dashboard</a>
-    <a href="#/live" data-view="live">Live</a>
+    <a href="#/accounts" data-view="accounts">Accounts</a>
     <a href="#/records" data-view="records">Records</a>
     <a href="#/overrides" data-view="overrides">Overrides</a>
     <a href="#/settings" data-view="settings">Settings</a>

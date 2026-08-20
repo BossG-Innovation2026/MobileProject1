@@ -32,34 +32,6 @@ async function init() {
     render();
   });
 
-  // Fetch departments and positions on init
-  const departments = await fetchDepartments();
-  const positions = await fetchPositions();
-  
-  // Populate Add Employee department/position dropdowns
-  const aeDepartment = $("#aeDepartment");
-  const aePosition = $("#aePosition");
-  const deptOptions = departments.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join("");
-  aeDepartment.innerHTML = deptOptions;
-  // Position options will be populated later or show all
-  const posOptions = positions.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
-  aePosition.innerHTML = posOptions;
-  
-  // Populate Edit Employee department/position dropdowns
-  const eeDepartment = $("#eeDepartment");
-  const eePosition = $("#eePosition");
-  eeDepartment.innerHTML = deptOptions;
-  eePosition.innerHTML = posOptions;
-  
-  // Initialize Live/Records filters (populated later when views render)
-  window.departments = departments;
-  window.positions = positions;
-
-  client.auth.onAuthStateChange((_event, s) => {
-    session = s;
-    render();
-  });
-
   $("#logoutBtn").addEventListener("click", async () => {
     await client.auth.signOut();
     render();
@@ -73,10 +45,11 @@ async function init() {
 /* Routing / shell                                                     */
 /* ------------------------------------------------------------------ */
 
-const VIEWS = ["dashboard", "live", "records", "overrides", "settings"];
+const VIEWS = ["dashboard", "accounts", "records", "overrides", "settings"];
 
 function currentView() {
   const h = window.location.hash.replace(/^#\//, "");
+  if (h === "live") return "dashboard";
   return VIEWS.includes(h) ? h : "dashboard";
 }
 
@@ -93,7 +66,7 @@ async function render() {
   v.innerHTML = "";
   try {
     switch (currentView()) {
-      case "live": await renderLive(v); break;
+      case "accounts": await renderAccounts(v); break;
       case "records": await renderRecords(v); break;
       case "overrides": await renderOverrides(v); break;
       case "settings": await renderSettings(v); break;
@@ -146,16 +119,63 @@ async function rpc(name, args) {
   return data;
 }
 
+// Flat select + client-side join — no PostgREST embed syntax.
 async function fetchEmployees() {
   const { data, error } = await client.from("employees")
-    .select(`
-      id, employee_id, full_name, first_name, middle_name, last_name, email, role, is_active, created_at,
-      departments!inner(department_id) -> name as department_name,
-      positions!inner(position_id) -> name as position_name
-    `)
+    .select("id, employee_id, full_name, first_name, middle_name, last_name, email, role, is_active, created_at, department_id, position_id")
     .order("full_name");
   if (error) throw error;
   return data;
+}
+
+// Lazy cached promises: any render function may await these without
+// refetching; the resolved lists are also exposed on `window` for the
+// records/live filter state.
+function fetchDepartments() {
+  if (!window.departmentsPromise) {
+    window.departmentsPromise = (async () => {
+      const { data, error } = await client.from("departments")
+        .select("id, name, sort_order, is_active")
+        .eq("is_active", true)
+        .order("sort_order");
+      if (error) throw error;
+      window.departments = data || [];
+      return window.departments;
+    })();
+  }
+  return window.departmentsPromise;
+}
+
+function fetchPositions() {
+  if (!window.positionsPromise) {
+    window.positionsPromise = (async () => {
+      const { data, error } = await client.from("positions")
+        .select("id, name, sort_order, is_active")
+        .eq("is_active", true)
+        .order("sort_order");
+      if (error) throw error;
+      window.positions = data || [];
+      return window.positions;
+    })();
+  }
+  return window.positionsPromise;
+}
+
+// Full lists (including inactive) for the departments & positions panel.
+async function fetchAllDepartments() {
+  const { data, error } = await client.from("departments")
+    .select("id, name, sort_order, is_active")
+    .order("sort_order");
+  if (error) throw error;
+  return data || [];
+}
+
+async function fetchAllPositions() {
+  const { data, error } = await client.from("positions")
+    .select("id, name, sort_order, is_active, department_id")
+    .order("sort_order");
+  if (error) throw error;
+  return data || [];
 }
 
 async function fetchDevices() {
@@ -187,30 +207,169 @@ function localDayRange(d) {
   return [start.toISOString(), end.toISOString()];
 }
 
+function filterOptions(items, selected) {
+  const sel = new Set(selected || []);
+  return items.map((i) =>
+    `<option value="${i.id}" ${sel.has(i.id) ? "selected" : ""}>${esc(i.name)}</option>`
+  ).join("");
+}
+
+function selectOptions(items, current) {
+  return items.map((i) =>
+    `<option value="${i.id}" ${i.id === current ? "selected" : ""}>${esc(i.name)}</option>`
+  ).join("");
+}
+
 /* ------------------------------------------------------------------ */
-/* Dashboard                                                           */
+/* Dashboard — live paired IN/OUT view                                 */
 /* ------------------------------------------------------------------ */
 
 async function renderDashboard(v) {
-  const [employees, devices] = await Promise.all([fetchEmployees(), fetchDevices()]);
-  const devicesByEmployee = {};
-  devices.forEach((d) => {
-    (devicesByEmployee[d.employee_id] ||= []).push(d);
-  });
-  const status = await rpc("admin_current_status");
   const [from, to] = localDayRange(new Date());
-  const today = await fetchAttendance(from, to);
+  const [employees, departments, positions, pairs, today] = await Promise.all([
+    fetchEmployees(),
+    fetchDepartments(),
+    fetchPositions(),
+    rpc("admin_daily_pairs", { p_from: from, p_to: to }),
+    fetchAttendance(from, to),
+  ]);
+  const deptName = (id) => (departments.find((d) => d.id === id) || {}).name || "—";
+  const posName = (id) => (positions.find((p) => p.id === id) || {}).name || "—";
+  const active = employees.filter((e) => e.is_active);
+  const pairByEmp = new Map(pairs.map((p) => [p.employee_id, p]));
 
-  const clockedIn = status.length;
-  const recordsToday = today.length;
-  const activeCount = employees.filter((e) => e.is_active).length;
+  // Every active employee is visible; pairs from the RPC are merged in.
+  window.liveRows = active.map((emp) => {
+    const p = pairByEmp.get(emp.id) || {};
+    return {
+      emp,
+      p,
+      deptName: p.department_name || deptName(emp.department_id),
+      posName: p.position_name || posName(emp.position_id),
+    };
+  });
+
+  const clockedIn = window.liveRows.filter((r) => r.p.in_at && !r.p.out_at).length;
 
   v.innerHTML = `
     <div class="cards">
       <div class="card"><div class="num">${clockedIn}</div><div class="lbl">Clocked in now</div></div>
-      <div class="card"><div class="num">${recordsToday}</div><div class="lbl">Records today</div></div>
-      <div class="card"><div class="num">${activeCount}</div><div class="lbl">Active employees</div></div>
+      <div class="card"><div class="num">${today.length}</div><div class="lbl">Records today</div></div>
+      <div class="card"><div class="num">${active.length}</div><div class="lbl">Active employees</div></div>
     </div>
+    <div class="panel">
+      <h2>Live attendance</h2>
+      <div class="toolbar">
+        <div>
+          <label>Department</label>
+          <select id="liveDeptFilter" multiple>${filterOptions(departments, window.liveDeptSel)}</select>
+        </div>
+        <div>
+          <label>Position</label>
+          <select id="livePosFilter" multiple>${filterOptions(positions, window.livePosSel)}</select>
+        </div>
+      </div>
+      <div id="liveTableWrap"></div>
+      <p class="muted" style="margin-top:10px">Auto-refreshes every 60 seconds.</p>
+    </div>`;
+
+  $("#liveTableWrap").innerHTML = buildLiveTable();
+
+  $("#liveDeptFilter").addEventListener("change", () => {
+    window.liveDeptSel = Array.from($("#liveDeptFilter").selectedOptions).map((o) => o.value);
+    $("#liveTableWrap").innerHTML = buildLiveTable();
+  });
+  $("#livePosFilter").addEventListener("change", () => {
+    window.livePosSel = Array.from($("#livePosFilter").selectedOptions).map((o) => o.value);
+    $("#liveTableWrap").innerHTML = buildLiveTable();
+  });
+
+  setTimeout(() => { if (currentView() === "dashboard") renderDashboard(v); }, 60000);
+}
+
+function liveFilteredRows() {
+  const depts = new Set(window.liveDeptSel || []);
+  const poss = new Set(window.livePosSel || []);
+  return (window.liveRows || []).filter((r) =>
+    (!depts.size || depts.has(r.emp.department_id)) &&
+    (!poss.size || poss.has(r.emp.position_id)));
+}
+
+// One table, two sections: "Clocked in" (grouped by department subheading
+// rows) on top, "Not clocked in" (flat, grayed) below.
+function buildLiveTable() {
+  const filtered = liveFilteredRows();
+  const clockedIn = filtered.filter((r) => r.p.in_at && !r.p.out_at);
+  const notClockedIn = filtered.filter((r) => !(r.p.in_at && !r.p.out_at));
+
+  const groups = new Map();
+  clockedIn.forEach((r) => {
+    if (!groups.has(r.deptName)) groups.set(r.deptName, []);
+    groups.get(r.deptName).push(r);
+  });
+  const deptGroups = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  deptGroups.forEach(([, list]) => list.sort((a, b) =>
+    (a.posName || "").localeCompare(b.posName || "") ||
+    a.emp.full_name.localeCompare(b.emp.full_name)));
+  notClockedIn.sort((a, b) => a.emp.full_name.localeCompare(b.emp.full_name));
+
+  const thead = `<thead><tr><th>Employee</th><th>Department</th><th>Position</th><th>IN Time</th><th>OUT Time</th><th>Duration</th><th>Mode</th><th>Status</th></tr></thead>`;
+  const rows = `
+    <tr class="section-head"><td colspan="8">Clocked in (${clockedIn.length})</td></tr>
+    ${deptGroups.map(([dept, list]) => `
+      <tr class="dept-head"><td colspan="8">${esc(dept)}</td></tr>
+      ${list.map((r) => liveRowHtml(r, false)).join("")}
+    `).join("") || `<tr><td colspan="8" class="empty">Nobody is clocked in right now.</td></tr>`}
+    <tr class="section-head"><td colspan="8">Not clocked in (${notClockedIn.length})</td></tr>
+    ${notClockedIn.map((r) => liveRowHtml(r, true)).join("") ||
+      `<tr><td colspan="8" class="empty">All active employees are clocked in.</td></tr>`}`;
+  return `<table>${thead}<tbody>${rows}</tbody></table>`;
+}
+
+function liveRowHtml(r, grayed) {
+  const p = r.p;
+  const overridden = p.in_status === "overridden" || p.out_status === "overridden";
+  const mode = p.out_mode || p.in_mode;
+  return `<tr class="${grayed ? "live-gray" : ""}">
+    <td>${esc(r.emp.full_name)}</td>
+    <td>${esc(r.deptName)}</td>
+    <td>${esc(r.posName)}</td>
+    <td>${p.in_at ? fmtTime(p.in_at) : "—"}</td>
+    <td>${p.out_at ? fmtTime(p.out_at) : "—"}</td>
+    <td>${p.out_at && p.duration_minutes != null ? p.duration_minutes + " min" : "—"}</td>
+    <td>${mode ? `<span class="badge ${mode === "outside" ? "out" : "in"}">${esc(mode.toUpperCase())}</span>` : "—"}</td>
+    <td>${overridden ? `<span class="badge out">Overridden</span>`
+      : !p.in_at ? "—"
+      : p.out_at ? `<span class="badge out">Out</span>`
+      : `<span class="badge in">In</span>`}</td>
+  </tr>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Accounts — employees + register/edit + departments & positions      */
+/* ------------------------------------------------------------------ */
+
+async function renderAccounts(v) {
+  const [employees, departments, positions, devices, allDepts, allPoss] = await Promise.all([
+    fetchEmployees(),
+    fetchDepartments(),
+    fetchPositions(),
+    fetchDevices(),
+    fetchAllDepartments(),
+    fetchAllPositions(),
+  ]);
+  const deptName = (id) => (allDepts.find((d) => d.id === id) || {}).name || "—";
+  const posName = (id) => (allPoss.find((p) => p.id === id) || {}).name || "—";
+  const devicesByEmployee = {};
+  devices.forEach((d) => {
+    (devicesByEmployee[d.employee_id] ||= []).push(d);
+  });
+  const deptOptions = selectOptions(departments);
+  const posOptions = selectOptions(positions);
+  const allDeptOptions = selectOptions(allDepts);
+  const allPosOptions = selectOptions(allPoss);
+
+  v.innerHTML = `
     <div class="panel">
       <h2>Employees (${employees.length})</h2>
       <table>
@@ -223,8 +382,8 @@ async function renderDashboard(v) {
               <td>${esc(e.full_name)}</td>
               <td>${esc(e.email)}</td>
               <td>${esc(e.role)}</td>
-              <td>${e.department_name || "—"}</td>
-              <td>${e.position_name || "—"}</td>
+              <td>${esc(deptName(e.department_id))}</td>
+              <td>${esc(posName(e.position_id))}</td>
               <td>${e.is_active ? '<span class="badge in">active</span>' : '<span class="badge off">disabled</span>'}</td>
               <td class="muted">
                 ${devs.length ? devs.map((d) =>
@@ -239,9 +398,10 @@ async function renderDashboard(v) {
                 <button class="secondary edit-employee" data-id="${esc(e.employee_id || "")}">Edit</button>
               </td>
             </tr>`;
-          }).join("") || `<tr><td colspan="7" class="empty">No employees yet.</td></tr>`}
+          }).join("") || `<tr><td colspan="9" class="empty">No employees yet.</td></tr>`}
         </tbody>
       </table>
+
       <div id="editEmpPanel" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
         <h3>Edit employee</h3>
         <form id="editEmpForm">
@@ -254,12 +414,8 @@ async function renderDashboard(v) {
           <div><label>Role</label>
             <select id="eeRole"><option value="employee">Employee</option><option value="admin">Admin</option></select>
           </div>
-          <div><label>Department</label>
-            <select id="eeDepartment"></select>
-          </div>
-          <div><label>Position</label>
-            <select id="eePosition"></select>
-          </div>
+          <div><label>Department</label><select id="eeDepartment">${allDeptOptions}</select></div>
+          <div><label>Position</label><select id="eePosition">${allPosOptions}</select></div>
           <div class="form-actions">
             <button type="submit">Save changes</button>
             <button type="button" class="secondary" id="eeCancel">Cancel</button>
@@ -267,6 +423,7 @@ async function renderDashboard(v) {
         </form>
         <div id="editMsg" style="margin-top:10px"></div>
       </div>
+
       <div style="margin-top:14px">
         <h2>Register employee</h2>
         <form id="addEmpForm">
@@ -278,24 +435,71 @@ async function renderDashboard(v) {
           <div><label>Role</label>
             <select id="aeRole"><option value="employee">Employee</option><option value="admin">Admin</option></select>
           </div>
-          <div><label>Department</label>
-            <select id="aeDepartment"></select>
-          </div>
-          <div><label>Position</label>
-            <select id="aePosition"></select>
-          </div>
+          <div><label>Department</label><select id="aeDepartment">${deptOptions}</select></div>
+          <div><label>Position</label><select id="aePosition">${posOptions}</select></div>
           <div class="form-actions"><button type="submit">Add employee</button></div>
         </form>
         <div id="addMsg" style="margin-top:10px"></div>
       </div>
+    </div>
+
+    <div class="panel">
+      <h2>Departments &amp; positions</h2>
+      <h3>Departments</h3>
+      <table>
+        <thead><tr><th>Name</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${allDepts.map((d) => `<tr>
+            <td><input class="dept-name" data-id="${d.id}" value="${esc(d.name)}"></td>
+            <td>${d.is_active ? '<span class="badge in">active</span>' : '<span class="badge off">disabled</span>'}</td>
+            <td>
+              <button class="secondary save-dept" data-id="${d.id}" data-active="${d.is_active}">Save</button>
+              <button class="secondary toggle-dept" data-id="${d.id}">${d.is_active ? "Disable" : "Enable"}</button>
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="toolbar">
+        <input id="newDeptName" placeholder="New department name">
+        <button id="addDept">Add department</button>
+      </div>
+      <h3>Positions</h3>
+      <table>
+        <thead><tr><th>Name</th><th>Department</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${allPoss.map((p) => `<tr>
+            <td><input class="pos-name" data-id="${p.id}" value="${esc(p.name)}"></td>
+            <td><select class="pos-dept" data-id="${p.id}">
+              <option value="">— none —</option>
+              ${selectOptions(allDepts, p.department_id || "")}
+            </select></td>
+            <td>${p.is_active ? '<span class="badge in">active</span>' : '<span class="badge off">disabled</span>'}</td>
+            <td>
+              <button class="secondary save-pos" data-id="${p.id}" data-active="${p.is_active}">Save</button>
+              <button class="secondary toggle-pos" data-id="${p.id}">${p.is_active ? "Disable" : "Enable"}</button>
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="toolbar">
+        <input id="newPosName" placeholder="New position name">
+        <select id="newPosDept"><option value="">— none —</option>${allDeptOptions}</select>
+        <button id="addPos">Add position</button>
+      </div>
     </div>`;
+
+  const refreshAccounts = async () => {
+    window.departmentsPromise = null;
+    window.positionsPromise = null;
+    await renderAccounts(v);
+  };
 
   v.querySelectorAll(".toggle-active").forEach((btn) => btn.addEventListener("click", async () => {
     const email = btn.dataset.email;
     const active = btn.dataset.active === "true";
     try {
       await rpc("admin_set_active", { p_email: email, p_active: !active });
-      await renderDashboard(v);
+      await renderAccounts(v);
     } catch (e) {
       flash(v, String(e.message), true);
     }
@@ -307,7 +511,7 @@ async function renderDashboard(v) {
     if (!confirm(`Remove the phone ${androidId} from ${email}?\nThe employee can then bind a new phone.`)) return;
     try {
       await rpc("admin_unbind_device", { p_employee_email: email, p_android_id: androidId });
-      await renderDashboard(v);
+      await renderAccounts(v);
     } catch (e) {
       flash(v, String(e.message), true);
     }
@@ -319,7 +523,7 @@ async function renderDashboard(v) {
     if (!confirm(`Release ALL phones bound to ${name} (${email})?\nThe employee must bind a phone again before checking in.`)) return;
     try {
       await rpc("admin_unbind_device", { p_employee_email: email });
-      await renderDashboard(v);
+      await renderAccounts(v);
     } catch (e) {
       flash(v, String(e.message), true);
     }
@@ -338,6 +542,8 @@ async function renderDashboard(v) {
     $("#eeEmail").value = emp.email || "";
     $("#eeId").value = emp.employee_id || "";
     $("#eeRole").value = emp.role || "employee";
+    $("#eeDepartment").value = emp.department_id || "";
+    $("#eePosition").value = emp.position_id || "";
     $("#editMsg").textContent = "";
     $("#editMsg").className = "msg";
   }));
@@ -358,12 +564,14 @@ async function renderDashboard(v) {
         p_last_name: $("#eeLast").value.trim() || null,
         p_employee_id: newId,
         p_role: $("#eeRole").value,
+        p_department_id: $("#eeDepartment").value || null,
+        p_position_id: $("#eePosition").value || null,
       });
       box.className = "msg ok";
       box.textContent = newId !== oldId
         ? `Saved. The new employee ID ${res.employee_id} is now the login password.`
         : "Employee updated.";
-      await renderDashboard(v);
+      await renderAccounts(v);
     } catch (err) {
       box.className = "msg err";
       box.textContent = err.message || "Failed to update employee.";
@@ -387,85 +595,96 @@ async function renderDashboard(v) {
         p_middle_name: $("#aeMid").value.trim() || null,
         p_last_name: $("#aeLast").value.trim() || null,
         p_role: $("#aeRole").value,
+        p_department_id: $("#aeDepartment").value || null,
+        p_position_id: $("#aePosition").value || null,
       });
       box.className = "msg ok";
       box.textContent = `Registered. Employee ID ${res.employee_id} is also their login password.`;
       $("#aeFirst").value = ""; $("#aeMid").value = ""; $("#aeLast").value = "";
       $("#aeEmail").value = ""; $("#aeId").value = "";
-      await renderDashboard(v);
+      await renderAccounts(v);
     } catch (err) {
       box.className = "msg err";
       box.textContent = err.message || "Failed to register employee.";
     }
   });
-}
 
-/* ------------------------------------------------------------------ */
-/* Live status                                                         */
-/* ------------------------------------------------------------------ */
+  $("#addDept").addEventListener("click", async () => {
+    const name = $("#newDeptName").value.trim();
+    if (!name) return;
+    try {
+      await rpc("admin_create_department", { p_name: name });
+      await refreshAccounts();
+    } catch (err) {
+      flash(v, err.message || "Failed to add department.", true);
+    }
+  });
 
-async function renderLive(v) {
-  const status = await rpc("admin_current_status");
-  const departments = window.departments || [];
-  const positions = window.positions || [];
-  const deptIds = new Set();
-  const posIds = new Set();
-  status.forEach((s) => {
-    // @ts-ignore
-    if (s.department_id) deptIds.add(s.department_id);
-    // @ts-ignore
-    if (s.position_id) posIds.add(s.position_id);
+  $("#addPos").addEventListener("click", async () => {
+    const name = $("#newPosName").value.trim();
+    if (!name) return;
+    try {
+      await rpc("admin_create_position", {
+        p_name: name,
+        p_department_id: $("#newPosDept").value || null,
+      });
+      await refreshAccounts();
+    } catch (err) {
+      flash(v, err.message || "Failed to add position.", true);
+    }
   });
-  
-  const deptFilterOptions = departments
-    .filter((d) => deptIds.has(d.id))
-    .map((d) => `<option value="${d.id}" selected>${esc(d.name)}</option>`)
-    .concat(departments.filter((d) => !deptIds.has(d.id)).map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join("");
-  const posFilterOptions = positions
-    .filter((p) => posIds.has(p.id))
-    .map((p) => `<option value="${p.id}" selected>${esc(p.name)}</option>`)
-    .concat(positions.filter((p) => !posIds.has(p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
-  
-  v.innerHTML = `
-    <div class="panel">
-      <h2>Clocked in now (${status.length})</h2>
-      <div class="toolbar">
-        <select id="liveDeptFilter" multiple style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px;">
-          ${deptFilterOptions}
-        </select>
-        <select id="livePosFilter" multiple style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px;">
-          ${posFilterOptions}
-        </select>
-      </div>
-      <table>
-        <thead><tr><th>Employee</th><th>Department</th><th>Position</th><th>IN Time</th><th>OUT Time</th><th>Mode</th><th>Status</th></tr></thead>
-        <tbody>
-          ${status.map((s) => `<tr>
-            <td>${esc(s.full_name)}</td>
-            <td>${esc(s.department_name || "—")}</td>
-            <td>${esc(s.position_name || "—")}</td>
-            <td>${fmtTime(s.checked_at)}</td>
-            <td>—</td>
-            <td><span class="badge ${s.mode === "outside" ? "out" : "in"}">${esc((s.mode || "inside").toUpperCase())}</span></td>
-            <td>In</td>
-          </tr>`).join("") ||
-          `<tr><td colspan="7" class="empty">Nobody is clocked in right now.</td></tr>`}</tbody>
-      </table>
-      <p class="muted" style="margin-top:10px">Auto-refreshes every 60 seconds.</p>
-    </div>`;
-  setTimeout(() => { if (currentView() === "live") renderLive(v); }, 60000);
 
-  // Live page filter listeners
-  $("#liveDeptFilter").addEventListener("change", (e) => {
-    const selected = Array.from(e.target.selectedOptions).map(o => o.value);
-    // Filter status by department - show only employees matching selected depts
-    // For simplicity, re-render with filtered approach
-    renderLive(v);
-  });
-  $("#livePosFilter").addEventListener("change", (e) => {
-    const selected = Array.from(e.target.selectedOptions).map(o => o.value);
-    renderLive(v);
-  });
+  v.querySelectorAll(".toggle-dept").forEach((btn) => btn.addEventListener("click", async () => {
+    try {
+      await rpc("admin_toggle_department", { p_id: btn.dataset.id });
+      await refreshAccounts();
+    } catch (err) {
+      flash(v, err.message || "Failed to toggle department.", true);
+    }
+  }));
+
+  v.querySelectorAll(".toggle-pos").forEach((btn) => btn.addEventListener("click", async () => {
+    try {
+      await rpc("admin_toggle_position", { p_id: btn.dataset.id });
+      await refreshAccounts();
+    } catch (err) {
+      flash(v, err.message || "Failed to toggle position.", true);
+    }
+  }));
+
+  v.querySelectorAll(".save-dept").forEach((btn) => btn.addEventListener("click", async () => {
+    const input = v.querySelector(`.dept-name[data-id="${btn.dataset.id}"]`);
+    const name = (input ? input.value : "").trim();
+    if (!name) return;
+    try {
+      await rpc("admin_update_department", {
+        p_id: btn.dataset.id,
+        p_name: name,
+        p_is_active: btn.dataset.active === "true",
+      });
+      await refreshAccounts();
+    } catch (err) {
+      flash(v, err.message || "Failed to rename department.", true);
+    }
+  }));
+
+  v.querySelectorAll(".save-pos").forEach((btn) => btn.addEventListener("click", async () => {
+    const nameInput = v.querySelector(`.pos-name[data-id="${btn.dataset.id}"]`);
+    const deptSelect = v.querySelector(`.pos-dept[data-id="${btn.dataset.id}"]`);
+    const name = (nameInput ? nameInput.value : "").trim();
+    if (!name) return;
+    try {
+      await rpc("admin_update_position", {
+        p_id: btn.dataset.id,
+        p_name: name,
+        p_is_active: btn.dataset.active === "true",
+        p_department_id: deptSelect ? deptSelect.value || null : null,
+      });
+      await refreshAccounts();
+    } catch (err) {
+      flash(v, err.message || "Failed to update position.", true);
+    }
+  }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -473,6 +692,7 @@ async function renderLive(v) {
 /* ------------------------------------------------------------------ */
 
 async function renderRecords(v) {
+  const [departments, positions] = await Promise.all([fetchDepartments(), fetchPositions()]);
   const d = new Date();
   v.innerHTML = `
     <div class="panel">
@@ -481,15 +701,45 @@ async function renderRecords(v) {
         <input type="date" id="recDate" value="${d.toISOString().slice(0, 10)}">
         <button id="recLoad">Load</button>
         <button class="secondary" id="recCsv">Export CSV</button>
-        <div style="margin-left: 20px;">
-          <select id="recDeptFilter" multiple style="width: 150px; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
-            ${/* will be populated by JS */}</select>
-          <select id="recPosFilter" multiple style="width: 150px; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
-            ${/* will be populated by JS */}</select>
+        <div>
+          <label>Department</label>
+          <select id="recDeptFilter" multiple style="width:150px;padding:8px;border:1px solid var(--border);border-radius:6px">
+            ${filterOptions(departments)}</select>
+        </div>
+        <div>
+          <label>Position</label>
+          <select id="recPosFilter" multiple style="width:150px;padding:8px;border:1px solid var(--border);border-radius:6px">
+            ${filterOptions(positions)}</select>
         </div>
       </div>
       <div id="recTable"></div>
     </div>`;
+
+  let allRows = [];
+
+  const renderFiltered = () => {
+    const depts = new Set(Array.from($("#recDeptFilter").selectedOptions).map((o) => o.value));
+    const poss = new Set(Array.from($("#recPosFilter").selectedOptions).map((o) => o.value));
+    const rows = allRows.filter((r) =>
+      (!depts.size || depts.has(r._deptId)) &&
+      (!poss.size || poss.has(r._posId)));
+    window.__csvRows = rows;
+    $("#recTable").innerHTML = rows.length ? `
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Mode</th><th>Time</th><th>Distance</th><th>GPS acc.</th><th>Bio</th><th>Status</th><th>Note</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr>
+          <td>${esc(r.Name)}</td>
+          <td><span class="badge ${r.Type === "IN" ? "in" : "out"}">${r.Type}</span></td>
+          <td><span class="badge ${r.Mode === "OUTSIDE" ? "out" : "in"}">${r.Mode}</span></td>
+          <td>${esc(r.Time)}</td>
+          <td class="muted">${esc(r.Distance)}</td>
+          <td class="muted">${esc(r.Accuracy)}</td>
+          <td class="muted">${esc(r.Biometric)}</td>
+          <td class="muted">${esc(r.Status)}</td>
+          <td class="muted">${esc(r.Note)}</td>
+        </tr>`).join("")}</tbody>
+      </table>` : `<div class="empty">No records for this date.</div>`;
+  };
 
   const load = async () => {
     const dt = new Date($("#recDate").value + "T12:00:00");
@@ -500,7 +750,7 @@ async function renderRecords(v) {
         fetchEmployees(),
       ]);
       const byId = Object.fromEntries(employees.map((e) => [e.id, e]));
-      const rows = records.map((r) => {
+      allRows = records.map((r) => {
         const emp = byId[r.employee_id];
         return {
           Name: emp?.full_name || r.employee_id,
@@ -513,34 +763,23 @@ async function renderRecords(v) {
           Biometric: r.biometric_verified ? "yes" : "no",
           Status: r.status,
           Note: r.note || "",
+          _deptId: emp?.department_id,
+          _posId: emp?.position_id,
         };
       });
-      window.__csvRows = rows;
-      $("#recTable").innerHTML = rows.length ? `
-        <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Mode</th><th>Time</th><th>Distance</th><th>GPS acc.</th><th>Bio</th><th>Status</th><th>Note</th></tr></thead>
-          <tbody>${rows.map((r) => `<tr>
-            <td>${esc(r.Name)}</td>
-            <td><span class="badge ${r.Type === "IN" ? "in" : "out"}">${r.Type}</span></td>
-            <td><span class="badge ${r.Mode === "OUTSIDE" ? "out" : "in"}">${r.Mode}</span></td>
-            <td>${esc(r.Time)}</td>
-            <td class="muted">${esc(r.Distance)}</td>
-            <td class="muted">${esc(r.Accuracy)}</td>
-            <td class="muted">${esc(r.Biometric)}</td>
-            <td class="muted">${esc(r.Status)}</td>
-            <td class="muted">${esc(r.Note)}</td>
-          </tr>`).join("")}</tbody>
-        </table>` : `<div class="empty">No records for this date.</div>`;
+      renderFiltered();
     } catch (e) {
       $("#recTable").innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
     }
   };
 
   $("#recLoad").addEventListener("click", load);
+  $("#recDeptFilter").addEventListener("change", renderFiltered);
+  $("#recPosFilter").addEventListener("change", renderFiltered);
   $("#recCsv").addEventListener("click", () => {
     const rows = window.__csvRows || [];
     if (!rows.length) return;
-    const header = Object.keys(rows[0]);
+    const header = Object.keys(rows[0]).filter((h) => !h.startsWith("_"));
     const csv = [header, ...rows.map((r) => header.map((h) => r[h]))]
       .map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
       .join("\n");
@@ -681,41 +920,6 @@ function readField(f) {
   if (f.type === "bool") return $("#" + id).checked;
   if (f.type === "time") return $("#" + id).value || null;
   return parseFloat($("#" + id).value) || 0;
-}
-
-async function fetchDepartments() {
-  const { data, error } = await client
-    .from("departments")
-    .select("id, name, sort_order, is_active")
-    .eq("is_active", true)
-    .order("sort_order");
-  if (error) throw error;
-  return data || [];
-}
-
-async function fetchPositions(deptId = null) {
-  let query = client.from("positions").select("id, name, sort_order, is_active").eq("is_active", true);
-  if (deptId !== null) {
-    query = query.eq("department_id", deptId);
-  }
-  query = query.order("sort_order");
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
-}
-
-function createMultiSelect(id, label, options, selected, onChange) {
-  const selectId = `multi-${id}`;
-  const items = (options || []).map((opt) => {
-    const selectedOpt = selected && selected.some((s) => s.id === opt.id);
-    return `<option value="${opt.id}" ${items.selectedOpt ? "selected" : ""}>${esc(opt.name)}</option>`;
-  }).join("");
-  return `
-    <label for="${selectId}" style="display:block; margin-bottom: 6px;">${esc(label)}</label>
-    <select id="${selectId}" multiple="${selected ? "multiple" : ""}" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
-      ${items}
-    </select>
-  `;
 }
 
 function flash(v, msg, isError) {

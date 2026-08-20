@@ -10,7 +10,7 @@ Android app (Kotlin + Jetpack Compose)
 Supabase (free tier — Postgres + Auth)
       │  server-side validation: radius, GPS accuracy, device binding
       ▼
-Admin web dashboard (later phase — Netlify/Vercel, free)
+Admin web dashboard (static site — Netlify/Vercel, free)
 ```
 
 ## Repository layout
@@ -18,6 +18,18 @@ Admin web dashboard (later phase — Netlify/Vercel, free)
 | Path | Contents |
 |---|---|
 | `supabase/migrations/001_initial.sql` | Full database schema + validation RPCs. Run once in the Supabase SQL editor |
+| `supabase/migrations/002_admin_dashboard.sql` | Admin dashboard RPCs (current status, settings, employee active toggle) |
+| `supabase/migrations/003_device_binding_hardening.sql` | One account per device + `device_owner` / `admin_unbind_device` |
+| `supabase/migrations/004_fix_rls_recursion.sql` | RLS recursion fix |
+| `supabase/migrations/005_two_devices_per_account.sql` | Up to 2 devices per account, per-device unbind |
+| `supabase/migrations/006_employee_id_login.sql` | Employee-ID login (7-digit ID = password), `admin_register_employee` / `admin_update_employee` / `resolve_login` |
+| `supabase/migrations/007_auto_mode.sql` | Server-side inside/outside mode from GPS distance |
+| `supabase/migrations/008_department_position.sql` | Departments & positions tables, admin CRUD RPCs |
+| `supabase/migrations/009_department_position_fix.sql` | Fixes registration NOT NULL failure, dept/position params on employee + position RPCs, `admin_daily_pairs` |
+| `supabase/flowtest_005.sql` | Device-binding flow test (SQL editor) |
+| `supabase/flowtest_007.sql` | Mode/radius flow test (SQL editor) |
+| `supabase/flowtest_009.sql` | Department/position + daily pairs flow test (SQL editor) |
+| `admin-dashboard/` | Admin web dashboard (zero build step) |
 | `android/` | Android Studio project (Kotlin, Compose, Material 3) |
 
 ## Why server-side validation?
@@ -54,9 +66,10 @@ So all rules live in Postgres RPC functions (`check_in`, `check_out`):
    values ('<user-uuid>', 'Admin Name', 'admin@school.edu.ph', 'admin');
    ```
 
-More employees can be added with the `admin_register_employee(email,
-password, full_name, role)` RPC (used by the future web dashboard) — or
-the same two-step process above.
+More employees can be added with the `admin_register_employee(p_email,
+p_employee_id, p_first_name, p_middle_name, p_last_name, p_role,
+p_department_id, p_position_id)` RPC (used by the dashboard's Accounts
+page) — or the same two-step process above.
 
 ## 2. Build the Android app
 
@@ -82,7 +95,7 @@ update public.settings set value = '"07:30"'::jsonb where key = 'work_start';
 | key | default | meaning |
 |---|---|---|
 | `school_location` | Cabiao placeholder | `{"lat": .., "lng": ..}` |
-| `check_radius_m` | 150 | max distance from school for check-in/out |
+| `check_radius_m` | 300 | max distance from school for check-in/out (since 007) |
 | `max_gps_accuracy_m` | 40 | reject weaker GPS fixes |
 | `enforce_work_hours` | false | block check-in outside work window |
 | `work_start` / `work_end` | 08:00 / 17:00 | window when enforce_work_hours = true |
@@ -92,8 +105,10 @@ update public.settings set value = '"07:30"'::jsonb where key = 'work_start';
 
 Static site in `admin-dashboard/` — zero build step, works in any browser.
 
-1. Run `supabase/migrations/002_admin_dashboard.sql` in the SQL editor
-   (adds the admin RPCs the dashboard uses)
+1. Run `supabase/migrations/002_admin_dashboard.sql` through
+   `supabase/migrations/009_department_position_fix.sql` in the SQL editor
+   (in order — they add the admin RPCs and the departments/positions
+   tables the dashboard uses)
 2. Paste your Supabase URL + anon key into `admin-dashboard/js/config.js`
 3. Deploy — any free static host:
    - **Netlify Drop**: drag the `admin-dashboard` folder onto https://app.netlify.com/drop
@@ -101,10 +116,21 @@ Static site in `admin-dashboard/` — zero build step, works in any browser.
    - **School PC**: just open `index.html` in a browser (works offline from a
      copied folder; only needs internet to reach Supabase)
 
-Features: employee management (register/enable/disable), live "clocked in now"
-view (auto-refresh), daily records with CSV export, manual overrides, and an
-editor for radius / school location / work hours. Non-admin logins are blocked
-server-side (`admin_only`).
+Features:
+- **Dashboard** — live paired IN/OUT view: every active employee with IN/OUT
+  times, duration, mode and department/position, plus "clocked in now",
+  "records today" and "active employees" counts. Clocked-in employees are
+  grouped under department subheadings; everyone else is listed grayed under
+  "Not clocked in". Department/position filters and a 60 s auto-refresh.
+- **Accounts** — employee list (devices, enable/disable, edit), register
+  employees with department/position (new registrations default to
+  General/Staff), and a departments & positions panel (create, rename,
+  enable/disable, scope positions to a department).
+- **Records** — daily records with department/position filters and CSV
+  export that matches the filtered set.
+- **Overrides** — manual attendance corrections.
+- **Settings** — editor for radius / school location / work hours.
+  Non-admin logins are blocked server-side (`admin_only`).
 
 ## 5. Useful admin queries
 

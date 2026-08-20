@@ -39,7 +39,7 @@ begin
   where employee_id in (select id from public.employees where email like 'ft009%@cabiao.test');
   delete from public.devices
   where employee_id in (select id from public.employees where email like 'ft009%@cabiao.test');
-  delete from public.auth.users where email in ('ft009a@cabiao.test', 'ft009b@cabiao.test', 'ft009c@cabiao.test');
+  delete from auth.users where email in ('ft009a@cabiao.test', 'ft009b@cabiao.test', 'ft009c@cabiao.test');
   delete from public.positions where name like 'FT Nine %';
   delete from public.departments where name = 'FT Nine Dept';
 
@@ -150,7 +150,7 @@ begin
   --    attendance and devices)
   delete from public.attendance where employee_id in (v_emp_a, v_emp_b, v_emp_c);
   delete from public.devices where employee_id in (v_emp_a, v_emp_b, v_emp_c);
-  delete from public.auth.users where id in (v_emp_a, v_emp_b, v_emp_c);
+  delete from auth.users where id in (v_emp_a, v_emp_b, v_emp_c);
   delete from public.positions where id in (v_pos, v_pos2);
   delete from public.departments where id = v_dept;
   insert into _r values ('7 cleanup',

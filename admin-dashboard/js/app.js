@@ -322,30 +322,41 @@ function deptCardsHtml(departments) {
   </div>`;
 }
 
-// Full grouped table: every department under its own subheading, with
-// clocked-in employees first and not-clocked-in (grayed) below.
+// Full table: "Clocked in" section grouped by department subheadings,
+// then "Not clocked in" as one flat alphabetical grayed list.
 function buildAllTable() {
+  const rows = window.liveRows || [];
+  const clockedIn = rows.filter((r) => r.p.in_at && !r.p.out_at);
+  const notClockedIn = rows.filter((r) => !(r.p.in_at && !r.p.out_at));
+
   const byDept = new Map();
-  (window.liveRows || []).forEach((r) => {
+  clockedIn.forEach((r) => {
     if (!byDept.has(r.deptName)) byDept.set(r.deptName, []);
     byDept.get(r.deptName).push(r);
   });
   const deptNames = [...byDept.keys()].sort((a, b) => a.localeCompare(b));
 
   const thead = `<thead><tr><th>Employee</th><th>Department</th><th>Position</th><th>IN Time</th><th>OUT Time</th><th>Duration</th><th>Mode</th><th>Status</th></tr></thead>`;
-  const body = deptNames.map((dept) => {
-    const rows = byDept.get(dept);
-    const clockedIn = rows.filter((r) => r.p.in_at && !r.p.out_at)
-      .sort((a, b) => (a.posName || "").localeCompare(b.posName || "") ||
+
+  const clockedSection = `
+    <tr class="section-head"><td colspan="8">Clocked in (${clockedIn.length})</td></tr>
+    ${deptNames.map((dept) => {
+      const list = byDept.get(dept).sort((a, b) =>
+        (a.posName || "").localeCompare(b.posName || "") ||
         a.emp.full_name.localeCompare(b.emp.full_name));
-    const notClockedIn = rows.filter((r) => !(r.p.in_at && !r.p.out_at))
-      .sort((a, b) => a.emp.full_name.localeCompare(b.emp.full_name));
-    return `
-      <tr class="dept-head"><td colspan="8">${esc(dept)}</td></tr>
-      ${clockedIn.map((r) => liveRowHtml(r, false, true)).join("")}
-      ${notClockedIn.map((r) => liveRowHtml(r, true, true)).join("")}`;
-  }).join("") || `<tr><td colspan="8" class="empty">No active employees yet.</td></tr>`;
-  return `<table>${thead}<tbody>${body}</tbody></table>`;
+      return `
+        <tr class="dept-head"><td colspan="8">${esc(dept)}</td></tr>
+        ${list.map((r) => liveRowHtml(r, false, true)).join("")}`;
+    }).join("") || `<tr><td colspan="8" class="empty">Nobody is clocked in right now.</td></tr>`}`;
+
+  const notClockedSection = `
+    <tr class="section-head"><td colspan="8">Not clocked in (${notClockedIn.length})</td></tr>
+    ${notClockedIn
+      .sort((a, b) => a.emp.full_name.localeCompare(b.emp.full_name))
+      .map((r) => liveRowHtml(r, true, true)).join("") ||
+      `<tr><td colspan="8" class="empty">All active employees are clocked in.</td></tr>`}`;
+
+  return `<table>${thead}<tbody>${clockedSection}${notClockedSection}</tbody></table>`;
 }
 
 // Drill-down for one department: "Clocked in" on top, "Not clocked in"

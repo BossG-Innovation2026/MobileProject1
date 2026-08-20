@@ -48,7 +48,7 @@ async function init() {
 /* Routing / shell                                                     */
 /* ------------------------------------------------------------------ */
 
-const VIEWS = ["dashboard", "accounts", "records", "overrides", "settings"];
+const VIEWS = ["dashboard", "accounts", "records", "reports", "overrides", "settings"];
 
 function currentView() {
   const h = window.location.hash.replace(/^#\//, "");
@@ -71,6 +71,7 @@ async function render() {
     switch (currentView()) {
       case "accounts": await renderAccounts(v); break;
       case "records": await renderRecords(v); break;
+      case "reports": await renderReports(v); break;
       case "overrides": await renderOverrides(v); break;
       case "settings": await renderSettings(v); break;
       default: await renderDashboard(v);
@@ -841,6 +842,105 @@ async function renderRecords(v) {
     a.click();
     URL.revokeObjectURL(a.href);
   });
+
+  load();
+}
+
+/* ------------------------------------------------------------------ */
+/* Reports — printable daily summary per employee                      */
+/* ------------------------------------------------------------------ */
+
+async function renderReports(v) {
+  const [departments, positions] = await Promise.all([fetchDepartments(), fetchPositions()]);
+  const d = new Date();
+  v.innerHTML = `
+    <div class="panel" id="reportPanel">
+      <div class="report-hdr">
+        <h2>Cabiao SHS — Attendance</h2>
+        <div class="sub" id="repSub"></div>
+      </div>
+      <div class="toolbar no-print">
+        <input type="date" id="repDate" value="${d.toISOString().slice(0, 10)}">
+        <select id="repDept" style="width:200px">
+          <option value="">All departments</option>
+          ${departments.map((dep) => `<option value="${dep.id}">${esc(dep.name)}</option>`).join("")}
+        </select>
+        <button id="repLoad">Load</button>
+        <button class="secondary" id="repPrint">Print</button>
+      </div>
+      <div id="repTable"></div>
+    </div>`;
+
+  const load = async () => {
+    const dt = new Date($("#repDate").value + "T12:00:00");
+    const [from, to] = localDayRange(dt);
+    const deptId = $("#repDept").value || null;
+    try {
+      const [employees, pairs] = await Promise.all([
+        fetchEmployees(),
+        rpc("admin_daily_pairs", { p_from: from, p_to: to }),
+      ]);
+      const deptName = (id) => (departments.find((d) => d.id === id) || {}).name || "—";
+      const posName = (id) => (positions.find((p) => p.id === id) || {}).name || "—";
+      const pairByEmp = new Map(pairs.map((p) => [p.employee_id, p]));
+
+      const rows = employees
+        .filter((e) => e.is_active && (!deptId || e.department_id === deptId))
+        .map((e) => {
+          const p = pairByEmp.get(e.id);
+          return {
+            e,
+            deptName: (p && p.department_name) || deptName(e.department_id),
+            posName: (p && p.position_name) || posName(e.position_id),
+            p: p || null,
+          };
+        })
+        .sort((a, b) => a.deptName.localeCompare(b.deptName) ||
+          a.e.full_name.localeCompare(b.e.full_name));
+
+      const dateLabel = $("#repDate").value;
+      const dayName = dt.toLocaleDateString([], { weekday: "long" });
+      const scope = deptId ? deptName(deptId) : "All departments";
+      $("#repSub").textContent = `Daily Attendance Summary — ${dayName}, ${dateLabel} · ${scope}`;
+
+      const fmtDur = (m) => m == null ? "—" : `${Math.floor(m / 60)}h ${m % 60}m`;
+      const present = rows.filter((r) => r.p && r.p.in_at);
+      const totalMin = present.reduce((s, r) => s + (r.p.duration_minutes || 0), 0);
+
+      const thead = `<thead><tr><th>#</th><th>Employee</th><th>Department</th><th>Position</th><th>Time In</th><th>Time Out</th><th>Duration</th><th>Status</th></tr></thead>`;
+      const body = rows.map((r, i) => {
+        const p = r.p;
+        const overridden = p && (p.in_status === "overridden" || p.out_status === "overridden");
+        const status = !p || !p.in_at
+          ? `<span class="badge off">No record</span>`
+          : overridden ? `<span class="badge out">Overridden</span>`
+          : !p.out_at ? `<span class="badge in">In</span>`
+          : `<span class="badge out">Out</span>`;
+        return `<tr class="${!p || !p.in_at ? "live-gray" : ""}">
+          <td>${i + 1}</td>
+          <td>${esc(r.e.full_name)}</td>
+          <td>${esc(r.deptName)}</td>
+          <td>${esc(r.posName)}</td>
+          <td>${p && p.in_at ? fmtTime(p.in_at) : "—"}</td>
+          <td>${p && p.out_at ? fmtTime(p.out_at) : "—"}</td>
+          <td>${p && p.in_at ? fmtDur(p.duration_minutes) : "—"}</td>
+          <td>${status}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="8" class="empty">No employees for this scope.</td></tr>`;
+
+      $("#repTable").innerHTML = `
+        <table>${thead}<tbody>${body}
+          <tr class="section-head"><td colspan="8">Summary — present: ${present.length} of ${rows.length} · total hours: ${fmtDur(totalMin)}</td></tr>
+        </tbody></table>`;
+    } catch (e) {
+      $("#repTable").innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+
+  $("#repLoad").addEventListener("click", load);
+  $("#repDept").addEventListener("change", load);
+  $("#repDate").addEventListener("change", load);
+  $("#repPrint").addEventListener("click", () => window.print());
 
   load();
 }

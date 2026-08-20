@@ -136,6 +136,20 @@
     font-weight: 700;
     text-transform: capitalize;
   }
+  .report-hdr { text-align: center; margin-bottom: 16px; }
+  .report-hdr h2 { font-size: 20px; color: var(--text); margin-bottom: 4px; }
+  .report-hdr .sub { color: var(--muted); font-size: 13px; }
+  @media print {
+    header, nav, #logoutBtn, .no-print { display: none !important; }
+    body { background: #fff; }
+    main { max-width: none; padding: 0; }
+    .panel { border: none; padding: 0; }
+    .report-hdr h2 { font-size: 18px; }
+    table { font-size: 11px; }
+    th, td { border: 1px solid #999; border-bottom: 1px solid #999; }
+    .badge, .live-gray td { background: #fff !important; color: #000 !important; }
+    tr { page-break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -145,6 +159,7 @@
     <a href="#/dashboard" data-view="dashboard">Dashboard</a>
     <a href="#/accounts" data-view="accounts">Accounts</a>
     <a href="#/records" data-view="records">Records</a>
+    <a href="#/reports" data-view="reports">Reports</a>
     <a href="#/overrides" data-view="overrides">Overrides</a>
     <a href="#/settings" data-view="settings">Settings</a>
   </nav>

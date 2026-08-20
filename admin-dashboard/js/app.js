@@ -12,6 +12,9 @@ const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric",
 const fmtDT = (iso) => new Date(iso).toLocaleString([], {
   month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
 });
+const fmtDate = (d) => d.toLocaleDateString([], {
+  weekday: "long", year: "numeric", month: "long", day: "numeric",
+});
 const isAdminError = (e) => String(e?.message || e).includes("admin_only");
 
 init();
@@ -226,12 +229,11 @@ function selectOptions(items, current) {
 
 async function renderDashboard(v) {
   const [from, to] = localDayRange(new Date());
-  const [employees, departments, positions, pairs, today] = await Promise.all([
+  const [employees, departments, positions, pairs] = await Promise.all([
     fetchEmployees(),
     fetchDepartments(),
     fetchPositions(),
     rpc("admin_daily_pairs", { p_from: from, p_to: to }),
-    fetchAttendance(from, to),
   ]);
   const deptName = (id) => (departments.find((d) => d.id === id) || {}).name || null;
   const posName = (id) => (positions.find((p) => p.id === id) || {}).name || "—";
@@ -249,7 +251,6 @@ async function renderDashboard(v) {
     };
   });
 
-  const clockedIn = window.liveRows.filter((r) => r.p.in_at && !r.p.out_at).length;
   const sel = window.selectedDept;
   const selName = sel === "all" ? "All departments"
     : (departments.find((d) => d.id === sel) || {}).name
@@ -257,16 +258,12 @@ async function renderDashboard(v) {
       || "—";
 
   v.innerHTML = `
-    <div class="cards">
-      <div class="card"><div class="num">${clockedIn}</div><div class="lbl">Clocked in now</div></div>
-      <div class="card"><div class="num">${today.length}</div><div class="lbl">Records today</div></div>
-      <div class="card"><div class="num">${active.length}</div><div class="lbl">Active employees</div></div>
-    </div>
+    <div class="date-banner">${fmtDate(new Date())}</div>
     <div class="panel">
       <h2>${sel ? esc(selName) + " — live attendance" : "Live attendance"}</h2>
       ${sel ? `<button class="secondary" id="backToDepts">← Departments</button>` : ""}
       <div id="liveTableWrap"></div>
-      <p class="muted" style="margin-top:10px">Auto-refreshes every 60 seconds.</p>
+      <p class="muted" style="margin-top:10px">Auto-refreshes every 20 seconds.</p>
     </div>`;
 
   if (sel) {
@@ -286,7 +283,7 @@ async function renderDashboard(v) {
     }));
   }
 
-  setTimeout(() => { if (currentView() === "dashboard") renderDashboard(v); }, 60000);
+  setTimeout(() => { if (currentView() === "dashboard") renderDashboard(v); }, 20000);
 }
 
 // One clickable card per department: big number = clocked in right now,

@@ -151,18 +151,13 @@ async function renderDashboard(v) {
   });
 
   const clockedInCount = status.length;
-  const totalActive = employees.filter(e => e.is_active).length;
 
-  v.innerHTML = dateBanner + `
-    <div class="cards">
-      <div class="card"><div class="num">${clockedInCount}</div><div class="lbl">Clocked In Now</div></div>
-      <div class="card"><div class="num">${totalActive}</div><div class="lbl">Active Employees</div></div>
-    </div>
+  v.innerHTML = `<div class="date-banner"><span>${fmtDate(today)}</span><span class="logged-in-count">Logged-In: ${clockedInCount}</span></div>
     <div class="dept-cards" id="deptCards">
       <button class="dept-card all" data-dept="all">
         <div class="dept-name">All Departments</div>
         <div class="num">${clockedInCount}</div>
-        <div class="lbl">Clocked In</div>
+        <div class="lbl">Logged In</div>
       </button>
       ${departments.map(d => {
         const count = status.filter(s => {
@@ -172,7 +167,7 @@ async function renderDashboard(v) {
         return `<button class="dept-card" data-dept="${d.id}">
           <div class="dept-name">${esc(d.name)}</div>
           <div class="num">${count}</div>
-          <div class="lbl">Clocked In</div>
+          <div class="lbl">Logged In</div>
         </button>`;
       }).join('')}
     </div>

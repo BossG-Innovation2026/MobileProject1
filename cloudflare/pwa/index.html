@@ -576,6 +576,35 @@
     </div>
   </div>
 
+  <!-- PIN Overlay -->
+  <div id="pinOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);align-items:center;justify-content:center">
+    <div style="background:var(--card);border-radius:16px;padding:24px;width:300px;max-width:90vw;text-align:center">
+      <div id="pinIcon" style="font-size:40px;margin-bottom:8px">🔒</div>
+      <h2 id="pinTitle" style="margin:0 0 4px;font-size:18px">Enter PIN</h2>
+      <p id="pinSubtitle" style="margin:0 0 16px;font-size:12px;color:var(--muted)">Confirm your identity to proceed</p>
+      <div id="pinDots" style="display:flex;justify-content:center;gap:12px;margin-bottom:20px">
+        <div class="pin-dot" style="width:12px;height:12px;border-radius:50%;background:var(--border);transition:background 0.2s"></div>
+        <div class="pin-dot" style="width:12px;height:12px;border-radius:50%;background:var(--border);transition:background 0.2s"></div>
+        <div class="pin-dot" style="width:12px;height:12px;border-radius:50%;background:var(--border);transition:background 0.2s"></div>
+        <div class="pin-dot" style="width:12px;height:12px;border-radius:50%;background:var(--border);transition:background 0.2s"></div>
+      </div>
+      <div id="pinKeypad" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <button class="pin-key" data-digit="1">1</button>
+        <button class="pin-key" data-digit="2">2</button>
+        <button class="pin-key" data-digit="3">3</button>
+        <button class="pin-key" data-digit="4">4</button>
+        <button class="pin-key" data-digit="5">5</button>
+        <button class="pin-key" data-digit="6">6</button>
+        <button class="pin-key" data-digit="7">7</button>
+        <button class="pin-key" data-digit="8">8</button>
+        <button class="pin-key" data-digit="9">9</button>
+        <button class="pin-key" data-digit="" style="visibility:hidden"></button>
+        <button class="pin-key" data-digit="0">0</button>
+        <button class="pin-key" data-digit="backspace">⌫</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main Screen -->
   <div class="screen" id="mainScreen">
     <div class="app-header">

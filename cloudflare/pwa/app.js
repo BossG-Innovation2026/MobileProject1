@@ -726,14 +726,18 @@ actionBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Check if action is check-in or check-out
   const actionText = actionBtn.textContent.trim();
   const isCheckIn = actionText === 'LOG IN' || actionText === 'CHECK IN';
   const isCheckOut = actionText === 'LOG OUT' || actionText === 'CHECK OUT';
 
   if (!isCheckIn && !isCheckOut) return;
 
-  // Skip geofence check in offline mode
+  const verified = await requestBiometric();
+  if (!verified) {
+    alert('Biometric verification failed or was cancelled.');
+    return;
+  }
+
   if (token === 'offline' || !navigator.onLine) {
     await performCheckin({
       lat: currentLat,
@@ -741,12 +745,11 @@ actionBtn.addEventListener('click', async () => {
       accuracy: gpsAccuracy,
       android_id: await getDeviceId(),
       device_name: navigator.userAgent.slice(0, 50),
-      biometric: false,
+      biometric: true,
     }, isCheckIn);
     return;
   }
 
-  // If outside geofence and checking in, show modal
   if (!isInsideGeofence && isCheckIn) {
     pendingCheckinData = {
       lat: currentLat,
@@ -754,7 +757,7 @@ actionBtn.addEventListener('click', async () => {
       accuracy: gpsAccuracy,
       android_id: await getDeviceId(),
       device_name: navigator.userAgent.slice(0, 50),
-      biometric: false,
+      biometric: true,
     };
     outsideModal.style.display = 'flex';
     outsideReason.value = '';
@@ -763,14 +766,13 @@ actionBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Normal check-in/out (inside geofence) or check-out (anywhere)
   await performCheckin({
     lat: currentLat,
     lng: currentLng,
     accuracy: gpsAccuracy,
     android_id: await getDeviceId(),
     device_name: navigator.userAgent.slice(0, 50),
-    biometric: false,
+    biometric: true,
   }, isCheckIn);
 });
 
@@ -874,6 +876,61 @@ async function getDeviceId() {
 }
 
 // IndexedDB helpers for device_id
+async function requestBiometric() {
+  if (!window.PublicKeyCredential) return true;
+
+  const credIdRaw = await getFromDB('webauthn_cred_id');
+
+  if (!credIdRaw) {
+    try {
+      const reg = await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: 'iAttend', id: location.hostname },
+          user: {
+            id: new TextEncoder().encode(currentUser.employee_id),
+            name: currentUser.employee_id,
+            displayName: currentUser.full_name,
+          },
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -7 },
+            { type: 'public-key', alg: -257 },
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required',
+            residentKey: 'preferred',
+          },
+          timeout: 60000,
+        },
+      });
+      const idArr = Array.from(new Uint8Array(reg.rawId));
+      await saveToDB('webauthn_cred_id', JSON.stringify(idArr));
+      return true;
+    } catch (e) {
+      if (e.name === 'NotAllowedError') return false;
+      return true;
+    }
+  }
+
+  try {
+    const idArr = JSON.parse(credIdRaw);
+    await navigator.credentials.get({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rpId: location.hostname,
+        allowCredentials: [{ type: 'public-key', id: new Uint8Array(idArr) }],
+        userVerification: 'required',
+        timeout: 60000,
+      },
+    });
+    return true;
+  } catch (e) {
+    if (e.name === 'NotAllowedError') return false;
+    return true;
+  }
+}
+
 function saveToDB(key, value) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('attendance_cache', 'readwrite');

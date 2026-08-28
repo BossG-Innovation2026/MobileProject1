@@ -1,5 +1,5 @@
 const fs = require('fs');
-const PAT = 'YOUR_PAT_HERE';
+const PAT = process.env.SUPABASE_PAT || 'YOUR_PAT_HERE';
 const URL = 'https://api.supabase.com/v1/projects/fhtmvstalbankfurfiei/database/query';
 const sqlFile = process.argv[2];
 const sql = fs.readFileSync(sqlFile, 'utf8');

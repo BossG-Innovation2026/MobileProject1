@@ -50,7 +50,7 @@ Repository layout:
 | Project ref | `fhtmvstalbankfurfiei` |
 | Project URL | `https://fhtmvstalbankfurfiei.supabase.co` |
 | Anon key (public, used by dashboard) | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZodG12c3RhbGJhbmtmdXJmaWVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODExNzQsImV4cCI6MjEwMjY1NzE3NH0.V27S4ocqi-h-AtWu7vy4luyLtVOdJdzocGNQlqkclOc` |
-| Personal Access Token (PAT, full account access) | `REDACTED` |
+| Personal Access Token (PAT, full account access) | **REDACTED** — see Supabase dashboard |
 | PAT management page | https://supabase.com/dashboard/account/tokens |
 | Dashboard admin login (sample data) | `admin@cabiao.test` / password `1000001` |
 | Old admin (DELETED in seed wipe) | `innov.proj2026@gmail.com` |

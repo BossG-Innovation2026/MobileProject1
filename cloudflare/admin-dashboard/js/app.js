@@ -646,22 +646,62 @@ async function renderOverrides(v) {
 /* ------------------------------------------------------------------ */
 
 async function renderSettings(v) {
-  const rules = await window.api.getRules();
+  const [rules, departments, positions] = await Promise.all([
+    window.api.getRules(),
+    window.api.getDepartments(),
+    window.api.getPositions(),
+  ]);
 
   v.innerHTML = `
     <div class="panel">
-      <h2>Settings</h2>
+      <h2>Attendance Settings</h2>
       <form id="settingsForm">
         <div><label>School Latitude</label><input type="number" step="any" id="setLat" value="${rules.school_lat}"></div>
         <div><label>School Longitude</label><input type="number" step="any" id="setLng" value="${rules.school_lng}"></div>
         <div><label>Check Radius (m)</label><input type="number" id="setRadius" value="${rules.check_radius_m}"></div>
         <div><label>Max GPS Accuracy (m)</label><input type="number" id="setAccuracy" value="${rules.max_gps_accuracy_m}"></div>
+        <div><label>Max Devices per Account</label><input type="number" id="setMaxDevices" value="${rules.max_devices_per_account}"></div>
         <div class="form-actions"><button type="submit">Save Settings</button></div>
       </form>
       <div id="setMsg" style="margin-top:10px"></div>
     </div>
+
+    <div class="panel">
+      <h2>Departments (${departments.length})</h2>
+      <div class="toolbar">
+        <input type="text" id="newDeptName" placeholder="Department name">
+        <button id="addDeptBtn">Add</button>
+      </div>
+      <div id="deptList" style="margin-top:10px">
+        ${departments.map(d => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="flex:1">${esc(d.name)}</span>
+            <button class="secondary act-icon delete-dept-btn" title="Delete" data-id="${d.id}" data-name="${esc(d.name)}">&#10005;</button>
+          </div>
+        `).join('')}
+      </div>
+      <div id="deptMsg" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Employee Types / Positions (${positions.length})</h2>
+      <div class="toolbar">
+        <input type="text" id="newPosName" placeholder="Position name">
+        <button id="addPosBtn">Add</button>
+      </div>
+      <div id="posList" style="margin-top:10px">
+        ${positions.map(p => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="flex:1">${esc(p.name)}</span>
+            <button class="secondary act-icon delete-pos-btn" title="Delete" data-id="${p.id}" data-name="${esc(p.name)}">&#10005;</button>
+          </div>
+        `).join('')}
+      </div>
+      <div id="posMsg" style="margin-top:10px"></div>
+    </div>
   `;
 
+  // Save attendance settings
   $('#settingsForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const msg = $('#setMsg');
@@ -672,9 +712,70 @@ async function renderSettings(v) {
       });
       await window.api.updateSetting('check_radius_m', parseInt($('#setRadius').value));
       await window.api.updateSetting('max_gps_accuracy_m', parseInt($('#setAccuracy').value));
+      await window.api.updateSetting('max_devices_per_account', parseInt($('#setMaxDevices').value));
       msg.innerHTML = `<div class="msg ok">Settings saved</div>`;
     } catch (err) {
       msg.innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
     }
+  });
+
+  // Add department
+  $('#addDeptBtn').addEventListener('click', async () => {
+    const name = $('#newDeptName').value.trim();
+    if (!name) return;
+    const msg = $('#deptMsg');
+    try {
+      await window.api.request('/api/admin/departments', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      msg.innerHTML = `<div class="msg ok">Added</div>`;
+      setTimeout(() => renderSettings(v), 500);
+    } catch (err) {
+      msg.innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+    }
+  });
+
+  // Delete department
+  document.querySelectorAll('.delete-dept-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Delete department "${btn.dataset.name}"?`)) return;
+      try {
+        await window.api.request(`/api/admin/departments/${btn.dataset.id}`, { method: 'DELETE' });
+        renderSettings(v);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  // Add position
+  $('#addPosBtn').addEventListener('click', async () => {
+    const name = $('#newPosName').value.trim();
+    if (!name) return;
+    const msg = $('#posMsg');
+    try {
+      await window.api.request('/api/admin/positions', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      msg.innerHTML = `<div class="msg ok">Added</div>`;
+      setTimeout(() => renderSettings(v), 500);
+    } catch (err) {
+      msg.innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+    }
+  });
+
+  // Delete position
+  document.querySelectorAll('.delete-pos-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Delete position "${btn.dataset.name}"?`)) return;
+      try {
+        await window.api.request(`/api/admin/positions/${btn.dataset.id}`, { method: 'DELETE' });
+        renderSettings(v);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   });
 }

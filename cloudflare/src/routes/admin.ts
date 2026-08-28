@@ -454,6 +454,32 @@ admin.put('/positions/:id', async (c) => {
   return c.json({ success: true });
 });
 
+// DELETE /api/admin/departments/:id - Delete department
+admin.delete('/departments/:id', async (c) => {
+  const { id } = c.req.param();
+  const empCount = await c.env.DB.prepare(
+    'SELECT COUNT(*) as cnt FROM employees WHERE department_id = ?'
+  ).bind(id).first();
+  if (empCount && (empCount.cnt as number) > 0) {
+    return c.json({ error: 'Cannot delete department with employees' }, 400);
+  }
+  await c.env.DB.prepare('DELETE FROM departments WHERE id = ?').bind(id).run();
+  return c.json({ success: true });
+});
+
+// DELETE /api/admin/positions/:id - Delete position
+admin.delete('/positions/:id', async (c) => {
+  const { id } = c.req.param();
+  const empCount = await c.env.DB.prepare(
+    'SELECT COUNT(*) as cnt FROM employees WHERE position_id = ?'
+  ).bind(id).first();
+  if (empCount && (empCount.cnt as number) > 0) {
+    return c.json({ error: 'Cannot delete position with employees' }, 400);
+  }
+  await c.env.DB.prepare('DELETE FROM positions WHERE id = ?').bind(id).run();
+  return c.json({ success: true });
+});
+
 // GET /api/admin/daily-pairs - Paired IN/OUT records
 admin.get('/daily-pairs', async (c) => {
   const from = c.req.query('from');

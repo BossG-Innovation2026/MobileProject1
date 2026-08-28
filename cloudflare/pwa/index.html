@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1B5E20">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="iAttend - Mobile-Based GPS Attendance and Monitoring System">
+  <title>iAttend</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231B5E20' width='100' height='100' rx='20'/><text x='50' y='68' font-size='50' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>iA</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231B5E20' width='100' height='100' rx='20'/><text x='50' y='68' font-size='50' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>iA</text></svg>">
+  <style>
+    :root {
+      --green: #1B5E20;
+      --green-dark: #14451a;
+      --green-light: #e8f5e9;
+      --orange: #E65100;
+      --red: #B3261E;
+      --bg: #f5f5f5;
+      --card: #ffffff;
+      --text: #1a1a1a;
+      --muted: #6b7280;
+      --border: #e0e0e0;
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Screens */
+    .screen { display: none; min-height: 100vh; min-height: 100dvh; }
+    .screen.active { display: flex; flex-direction: column; }
+
+    /* Login */
+    #loginScreen {
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      background: linear-gradient(135deg, var(--green) 0%, var(--green-dark) 100%);
+    }
+
+    .login-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 32px 24px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+
+    .login-logo {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .login-logo .icon {
+      width: 64px;
+      height: 64px;
+      background: var(--green);
+      border-radius: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+    }
+
+    .login-logo .icon span {
+      color: white;
+      font-size: 28px;
+      font-weight: 800;
+    }
+
+    .login-logo h1 {
+      font-size: 20px;
+      color: var(--green-dark);
+      margin-bottom: 4px;
+    }
+
+    .login-logo p {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--green);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--green);
+      color: white;
+    }
+
+    .btn-danger {
+      background: var(--red);
+      color: white;
+    }
+
+    .btn-outline {
+      background: white;
+      color: var(--green);
+      border: 2px solid var(--green);
+    }
+
+    .error-msg {
+      background: #fdecea;
+      color: var(--red);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-top: 12px;
+      display: none;
+    }
+
+    .error-msg.show { display: block; }
+
+    /* Main App */
+    #mainScreen {
+      background: var(--bg);
+    }
+
+    .app-header {
+      background: var(--green);
+      color: white;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .app-header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .app-header .user-info {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .app-content {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Status Banner */
+    .status-banner {
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .status-banner.clocked-in {
+      background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%);
+      border: 2px solid #81c784;
+    }
+
+    .status-banner.clocked-out {
+      background: linear-gradient(135deg, #ffe0b2 0%, #ffcc80 100%);
+      border: 2px solid #ffb74d;
+    }
+
+    .status-banner .status-text {
+      font-size: 14px;
+      color: var(--green-dark);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .status-banner .status-time {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--green-dark);
+    }
+
+    .status-banner .status-detail {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* GPS Signal */
+    .gps-signal {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.9);
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .gps-signal .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ccc;
+    }
+
+    .gps-signal.good .dot { background: #4caf50; }
+    .gps-signal.medium .dot { background: #ff9800; }
+    .gps-signal.poor .dot { background: #f44336; }
+
+    /* Action Button */
+    .action-btn {
+      width: 100%;
+      padding: 18px;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 12px;
+      transition: transform 0.1s;
+    }
+
+    .action-btn:active { transform: scale(0.98); }
+    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .action-btn.checkin {
+      background: var(--green);
+      color: white;
+    }
+
+    .action-btn.checkout {
+      background: var(--orange);
+      color: white;
+    }
+
+    /* Info Cards */
+    .info-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .info-card h3 {
+      font-size: 13px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .info-card .value {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    /* History */
+    .history-list {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .history-item {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .history-item:last-child { border-bottom: none; }
+
+    .history-item .type-badge {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .history-item .type-badge.in {
+      background: #c8e6c9;
+      color: var(--green-dark);
+    }
+
+    .history-item .type-badge.out {
+      background: #ffe0b2;
+      color: var(--orange);
+    }
+
+    .history-item .details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .history-item .time {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .history-item .meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .history-item .mode {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: var(--green-light);
+      color: var(--green-dark);
+    }
+
+    /* Bottom Nav */
+    .bottom-nav {
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      display: flex;
+      padding: 8px 0;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 4px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 10px;
+      cursor: pointer;
+      border: none;
+      background: none;
+    }
+
+    .nav-item.active { color: var(--green); }
+    .nav-item svg { width: 24px; height: 24px; margin-bottom: 2px; }
+
+    /* Tab content */
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Sync indicator */
+    .sync-indicator {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--green);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      display: none;
+      z-index: 100;
+    }
+
+    .sync-indicator.show { display: block; }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--muted);
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--green);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Offline banner */
+    .offline-banner {
+      background: var(--orange);
+      color: white;
+      text-align: center;
+      padding: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      display: none;
+    }
+
+    .offline-banner.show { display: block; }
+
+    /* Pull to refresh hint */
+    .pull-hint {
+      text-align: center;
+      padding: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Duration display */
+    .duration-display {
+      text-align: center;
+      padding: 12px;
+      background: var(--green-light);
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+
+    .duration-display .label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .duration-display .time {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--green-dark);
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+    }
+
+    .modal {
+      background: var(--card);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      animation: slideUp 0.2s ease-out;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-header h2 {
+      font-size: 16px;
+      color: var(--orange);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+
+    .modal-body {
+      padding: 20px;
+    }
+
+    .modal-warning {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <!-- Offline Banner -->
+  <div class="offline-banner" id="offlineBanner">You are offline. Changes will sync when connected.</div>
+
+  <!-- Login Screen -->
+  <div class="screen active" id="loginScreen">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="icon"><span>iA</span></div>
+        <h1>iAttend</h1>
+        <p>GPS Attendance System</p>
+      </div>
+      <form id="loginForm">
+        <div class="form-group">
+          <label>Employee ID</label>
+          <input type="text" id="employeeId" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" placeholder="7-digit ID" required autocomplete="username">
+        </div>
+        <button type="submit" class="btn btn-primary" id="loginBtn">LOG IN</button>
+        <div class="error-msg" id="loginError"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Screen -->
+  <div class="screen" id="mainScreen">
+    <div class="app-header">
+      <h1>iAttend</h1>
+      <span class="user-info" id="userLabel"></span>
+      <button class="btn btn-outline" style="width:auto;padding:8px 12px;font-size:12px" id="logoutBtn">Logout</button>
+    </div>
+
+    <div class="app-content">
+      <!-- Home Tab -->
+      <div class="tab-content active" id="homeTab">
+        <div id="gpsSignal" class="gps-signal">
+          <span class="dot"></span>
+          <span class="text">GPS</span>
+        </div>
+
+        <div class="status-banner" id="statusBanner">
+          <div class="status-text" id="statusText">Loading...</div>
+          <div class="status-time" id="statusTime">--:--</div>
+          <div class="status-detail" id="statusDetail"></div>
+        </div>
+
+        <button class="action-btn checkin" id="actionBtn" disabled>
+          CHECK IN
+        </button>
+
+        <div class="duration-display" id="durationDisplay" style="display:none">
+          <div class="label">Duration</div>
+          <div class="time" id="durationTime">0:00</div>
+        </div>
+
+        <div class="info-card">
+          <h3>Location</h3>
+          <div class="value" id="locationInfo">Getting GPS fix...</div>
+        </div>
+
+        <div class="info-card">
+          <h3>School Distance</h3>
+          <div class="value" id="distanceInfo">--</div>
+        </div>
+
+        <div class="info-card">
+          <h3>Mode</h3>
+          <div class="value" id="modeInfo">--</div>
+        </div>
+
+        <div class="info-card">
+          <h3>Device Binding</h3>
+          <div class="value" id="deviceInfo">Checking...</div>
+          <div id="deviceActions" style="margin-top:8px;display:none">
+            <button class="btn btn-outline" style="width:auto;padding:6px 12px;font-size:12px" id="unbindBtn">Unbind Device</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- History Tab -->
+      <div class="tab-content" id="historyTab">
+        <h2 style="font-size:16px;margin-bottom:12px">Today's Attendance</h2>
+        <div class="history-list" id="historyList">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <div class="bottom-nav">
+      <button class="nav-item active" data-tab="homeTab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Home
+      </button>
+      <button class="nav-item" data-tab="historyTab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        History
+      </button>
+    </div>
+  </div>
+
+  <!-- Sync Indicator -->
+  <div class="sync-indicator" id="syncIndicator">Syncing...</div>
+
+  <!-- Outside Geofence Modal -->
+  <div class="modal-overlay" id="outsideModal" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Outside Geofence</h2>
+        <button class="modal-close" id="closeModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-warning">You are outside the school premises. Please provide a reason for remote check-in.</p>
+        <div class="form-group">
+          <label>Location / Reason *</label>
+          <input type="text" id="outsideReason" placeholder="e.g., Home, Clinic, Off-site meeting" maxlength="50" required>
+        </div>
+        <div class="form-group">
+          <label>Short Name (for display) *</label>
+          <input type="text" id="outsideShortName" placeholder="e.g., HOME, CLINIC" maxlength="20" required style="text-transform:uppercase">
+        </div>
+        <button class="btn btn-primary" id="confirmOutsideBtn">CONFIRM CHECK-IN</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=3"></script>
+</body>
+</html>

@@ -9,16 +9,18 @@ Resume-point document. When you come back, start here.
 School attendance system for Cabiao SHS:
 
 - **Android app** (Kotlin + Jetpack Compose) — employees check in/out with GPS, device binding, biometric flag
-- **Supabase** (Postgres + Auth) — all server-side validation RPCs (`check_in`, `check_out`, admin functions)
-- **Admin web dashboard** — static site (no build step), hosted on Netlify
+- **Cloudflare Workers API** (Hono + D1 SQLite) — all server-side validation, JWT auth, employee management
+- **Admin web dashboard** — static site (no build step), hosted on Cloudflare Pages
+- **Supabase** (legacy, being migrated) — Postgres + Auth RPCs (check_in, check_out, admin functions)
 
 Repository layout:
 
 | Path | Contents |
 |---|---|
-| `admin-dashboard/` | Admin web dashboard (HTML + JS, zero build) |
+| `cloudflare/` | Cloudflare Workers API + D1 migrations + admin dashboard |
+| `admin-dashboard/` | Original admin web dashboard (Supabase version) |
 | `android/` | Android Studio project |
-| `supabase/migrations/` | SQL migrations 001–009 |
+| `supabase/migrations/` | SQL migrations 001–009 (Supabase/Postgres) |
 | `supabase/seed_demo_data.sql` | Wipe + reseed demo data (re-runnable) |
 | `supabase/flowtest_*.sql` | Flow tests (007, 009) |
 
@@ -26,13 +28,26 @@ Repository layout:
 
 ## 2. Live URLs & Access
 
+### Cloudflare (NEW - Primary)
+
+| Item | Value |
+|---|---|
+| Project Name | **iAttend – Mobile-Based GPS Attendance and Monitoring System** |
+| Admin dashboard | https://iattend-cshs.pages.dev |
+| API backend | https://iattend-api.305872.workers.dev |
+| Workers project | `iattend-api` |
+| Pages project | `iattend-cshs` |
+| D1 database | `cabiao-attendance` (ID: `e0cac5b1-0cf5-4b52-9277-8bae12888c0e`) |
+| Account | `305872@deped.gov.ph` (Account ID: `5bdf81ec5c8ad40995993982cf909cc6`) |
+| **PWA (Mobile App)** | **https://iattend-app.pages.dev** |
+
+### Supabase (Legacy - Being Migrated)
+
 | Item | Value |
 |---|---|
 | Admin dashboard | https://cshs-attendance2026.netlify.app |
 | Netlify site name | `cshs-attendance2026` |
 | Netlify site ID | `ffc7ddf9-b193-4045-913a-7b27404c6f45` |
-| Netlify admin URL | https://app.netlify.com/projects/cshs-attendance2026 |
-| Netlify account email | `innov.proj2026@gmail.com` (team: BossG Innovations) |
 | Supabase project URL | https://fhtmvstalbankfurfiei.supabase.co |
 | Supabase project ref | `fhtmvstalbankfurfiei` |
 | GitHub repo | https://github.com/BossG-Innovation2026/mobileproject3.git |
@@ -43,7 +58,23 @@ Repository layout:
 
 > ⚠️ **SECURITY: this file contains live secrets. Keep the repo PRIVATE.** Rotate/revoke any token below the moment it is suspected of leaking. The Supabase PAT was also shared in a chat session — consider revoking it and generating a fresh one.
 
-### Supabase
+### Cloudflare (NEW)
+
+| Item | Value |
+|---|---|
+| Project Name | **iAttend – Mobile-Based GPS Attendance and Monitoring System** |
+| Account email | `305872@deped.gov.ph` |
+| Account ID | `5bdf81ec5c8ad40995993982cf909cc6` |
+| Auth method | `CLOUDFLARE_API_TOKEN` environment variable |
+| Workers URL | `https://iattend-api.305872.workers.dev` |
+| Pages URL (Admin) | `https://iattend-cshs.pages.dev` |
+| Pages URL (PWA) | `https://iattend-app.pages.dev` |
+| D1 database ID | `e0cac5b1-0cf5-4b52-9277-8bae12888c0e` |
+| JWT Secret | `CHANGE_ME_IN_PRODUCTION` (set in Workers dashboard → Settings → Variables) |
+| Deploy command | `cd cloudflare && npx wrangler deploy` |
+| Pages deploy | `cd cloudflare && npx wrangler pages deploy admin-dashboard --project-name=iattend-cshs` |
+
+### Supabase (Legacy)
 
 | Item | Value |
 |---|---|
@@ -89,6 +120,20 @@ Repository layout:
 
 ## 4. Database State (current)
 
+### Cloudflare D1 (NEW)
+
+- **Database:** `cabiao-attendance` (ID: `e0cac5b1-0cf5-4b52-9277-8bae12888c0e`)
+- **Region:** APAC
+- **Account:** `305872@deped.gov.ph` (Account ID: `5bdf81ec5c8ad40995993982cf909cc6`)
+- **Tables:** employees, devices, attendance, settings, departments, positions
+- **Migrations applied:** backup.sql (migrated from old account)
+- **Data:** 4 employees, 6 departments, 6 positions, settings
+- **Login:** Employee ID `1000001` (password = employee ID)
+
+### Supabase Postgres (Legacy)
+
+### Supabase Postgres (Legacy)
+
 - Migrations **001–009 applied** (008 = departments/positions tables; 009 = register/update employee dept+pos params, position scoping, `admin_daily_pairs` RPC)
 - **6 departments**: Tech-Pro, ABM/STEM, HUMSS, SPORTS, ADMIN, U-SG
 - **12 positions** (Teacher + Staff per department)
@@ -130,6 +175,26 @@ Sample data summary (ID = password):
 
 ---
 
+## 6. Work Log — Session 2026-08-28 (Cloudflare Migration)
+
+1. **Analyzed Supabase schema** — 9 migrations, 6 tables, 22 RPC functions, RLS policies
+2. **Created D1 SQLite schema** — converted PostgreSQL types to SQLite equivalents (uuid→TEXT, jsonb→TEXT, timestamptz→TEXT)
+3. **Built Cloudflare Workers API** — Hono framework with:
+   - JWT authentication (custom, no Supabase Auth)
+   - All attendance RPCs (check-in, check-out, rules, device resolution)
+   - Admin CRUD (employees, departments, positions, settings, overrides)
+   - Haversine distance calculation (same as PostgreSQL version)
+4. **Deployed to Cloudflare:**
+   - D1 database: `cabiao-attendance` (APAC region)
+   - Workers API: `cabiao-attendance-api.innov-proj2026.workers.dev`
+   - Admin dashboard: `iattend-cshs.pages.dev`
+5. **Tested API endpoints** — login, health check all working
+6. **Renamed project to "iAttend"** — updated Worker name, Pages project, dashboard titles
+7. **Migrated to new Cloudflare account** (`305872@deped.gov.ph`) — new D1 database, new URLs
+8. **Updated project3log.md** with all deployment details
+
+---
+
 ## 6. Git History (recent)
 
 ```
@@ -144,9 +209,44 @@ e286e42 Add department/position feature: fixes registration NOT NULL, adds depar
 ab5f9af Add department/position feature: filters, forms, paired IN/OUT view   <-- BROKEN, superseded
 ```
 
+### Cloudflare Migration Commits
+
+```
+e7b7359 Remove secrets from tracked files (PAT tokens redacted)
+30479e0 Add Cloudflare Workers API + D1 schema + admin dashboard
+```
+
 ---
 
 ## 7. Resume Instructions
+
+### Cloudflare Deployment (NEW)
+
+**Deploy Workers API:**
+```bash
+cd cloudflare
+npx wrangler deploy
+```
+
+**Deploy Admin Dashboard:**
+```bash
+cd cloudflare
+npx wrangler pages deploy admin-dashboard --project-name=iattend-cshs
+```
+
+**Initialize D1 Database:**
+```bash
+cd cloudflare
+npx wrangler d1 execute cabiao-attendance --remote --file=migrations/001_initial.sql
+npx wrangler d1 execute cabiao-attendance --remote --file=migrations/002_seed_demo.sql
+```
+
+**Run SQL against D1:**
+```bash
+npx wrangler d1 execute cabiao-attendance --remote --command "SELECT * FROM employees"
+```
+
+### Supabase Deployment (Legacy)
 
 ### Redeploy dashboard to Netlify
 
@@ -183,10 +283,64 @@ where n.nspname = 'public' and proname in ('admin_daily_pairs','admin_register_e
 
 ---
 
-## 8. Notes & Pitfalls
+## 8. Cloudflare Deployment (NEW)
+
+### Cloudflare URLs & Access
+
+| Item | Value |
+|---|---|
+| Admin dashboard | https://iattend-cshs.pages.dev |
+| API backend | https://cabiao-attendance-api.innov-proj2026.workers.dev |
+| Cloudflare account | `innov.proj2026@gmail.com` (via CF_API_TOKEN env var) |
+| D1 database name | `cabiao-attendance` |
+| D1 database ID | `198d6171-2fd4-48f3-87df-a3679ac4cdbe` |
+| D1 region | APAC |
+| Workers project | `cabiao-attendance-api` |
+| Pages project | `iattend-cshs` |
+
+### Cloudflare Credentials
+
+| Item | Value |
+|---|---|
+| JWT Secret | `CHANGE_ME_IN_PRODUCTION` (set via Cloudflare Workers dashboard → Settings → Variables) |
+| D1 database binding | `DB` in wrangler.toml |
+| API authentication | Custom JWT tokens (no Supabase Auth) |
+
+### Cloudflare Resume Instructions
+
+**Deploy Workers API:**
+```bash
+cd cloudflare
+npx wrangler deploy
+```
+
+**Deploy Admin Dashboard:**
+```bash
+cd cloudflare
+npx wrangler pages deploy admin-dashboard --project-name=iattend-cshs
+```
+
+**Initialize D1 Database:**
+```bash
+cd cloudflare
+npx wrangler d1 execute cabiao-attendance --remote --file=migrations/001_initial.sql
+npx wrangler d1 execute cabiao-attendance --remote --file=migrations/002_seed_demo.sql
+```
+
+**Run SQL against D1:**
+```bash
+npx wrangler d1 execute cabiao-attendance --remote --command "SELECT * FROM employees"
+```
+
+---
+
+## 9. Notes & Pitfalls
 
 - **Supabase PAT shared in chat** — revoke at https://supabase.com/dashboard/account/tokens and regenerate if the chat is not private
 - **`project3log.md` contains live secrets** — do not make the GitHub repo public
 - `admin_daily_pairs` only pairs IN/OUT where the IN falls inside the requested day (IN before midnight won't pair)
 - Inactive employees are excluded from pairs and dashboard; Reports shows only active employees (absent = "No record")
 - Netlify deploys only the `admin-dashboard/` folder (site root = its contents)
+- **Cloudflare JWT_SECRET must be changed** before production use (set in Workers dashboard → Settings → Variables)
+- **D1 database is in APAC region** — closest to Philippines for low latency
+- **Android app still uses Supabase** — needs migration to Cloudflare Workers API (pending)

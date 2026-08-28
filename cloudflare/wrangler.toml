@@ -1,0 +1,11 @@
+name = "iattend-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+JWT_SECRET = "CHANGE_ME_IN_PRODUCTION"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cabiao-attendance"
+database_id = "e0cac5b1-0cf5-4b52-9277-8bae12888c0e"

@@ -1,23 +1,29 @@
-# Cabiao SHS Employee Attendance
+# iAttend – Mobile-Based GPS Attendance and Monitoring System
 
 Android attendance app with GPS geofence validation, biometric/device-lock
 verification, and one-phone-per-employee device binding.
 
 ```
-Android app (Kotlin + Jetpack Compose)
-      │  REST (Supabase anon key, RLS-protected)
+PWA (Mobile Browser)
+      │  REST (Cloudflare Workers API)
       ▼
-Supabase (free tier — Postgres + Auth)
+Cloudflare Workers + D1 (serverless)
       │  server-side validation: radius, GPS accuracy, device binding
       ▼
-Admin web dashboard (static site — Netlify/Vercel, free)
+Admin web dashboard (Cloudflare Pages, free)
 ```
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `supabase/migrations/001_initial.sql` | Full database schema + validation RPCs. Run once in the Supabase SQL editor |
+| `cloudflare/pwa/` | iAttend PWA (mobile web app) |
+| `cloudflare/admin-dashboard/` | Admin web dashboard |
+| `cloudflare/src/` | Cloudflare Workers API |
+| `cloudflare/migrations/` | D1 SQLite migrations |
+| `android/` | Android Studio project (legacy) |
+| `admin-dashboard/` | Original admin dashboard (Supabase, legacy) |
+| `supabase/migrations/` | SQL migrations 001–009 (Supabase, legacy) |
 | `supabase/migrations/002_admin_dashboard.sql` | Admin dashboard RPCs (current status, settings, employee active toggle) |
 | `supabase/migrations/003_device_binding_hardening.sql` | One account per device + `device_owner` / `admin_unbind_device` |
 | `supabase/migrations/004_fix_rls_recursion.sql` | RLS recursion fix |

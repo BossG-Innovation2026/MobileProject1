@@ -152,6 +152,17 @@ async function renderDashboard(v) {
 
   const clockedInCount = status.length;
 
+  function fmtDateTimeMs(d) {
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const date = `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+    const h = d.getHours().toString().padStart(2,'0');
+    const m = d.getMinutes().toString().padStart(2,'0');
+    const s = d.getSeconds().toString().padStart(2,'0');
+    const ms = d.getMilliseconds().toString().padStart(3,'0');
+    return `${date} — ${h}:${m}:${s}.${ms}`;
+  }
+
   // Date banner with live clock
   v.innerHTML = `
     <div class="date-banner">

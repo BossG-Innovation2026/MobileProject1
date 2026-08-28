@@ -65,22 +65,27 @@ async function init() {
   token = localStorage.getItem('iattend_token');
   currentUser = JSON.parse(localStorage.getItem('iattend_user'));
 
-  if (token && currentUser) {
+  if (token === 'offline' && currentUser) {
+    showMainScreen();
+  } else if (token && currentUser) {
     showMainScreen();
   }
 
   // Online/offline events
   window.addEventListener('online', () => {
     offlineBanner.classList.remove('show');
+    renderOfflineLogin();
     syncOfflineData();
   });
   window.addEventListener('offline', () => {
     offlineBanner.classList.add('show');
+    renderOfflineLogin();
   });
 
   // Check initial online status
   if (!navigator.onLine) {
     offlineBanner.classList.add('show');
+    renderOfflineLogin();
   }
 
   // Tab navigation
@@ -101,7 +106,7 @@ async function init() {
 // IndexedDB
 function openDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('iattend_db', 1);
+    const request = indexedDB.open('iattend_db', 2);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       db = request.result;
@@ -115,8 +120,77 @@ function openDB() {
       if (!database.objectStoreNames.contains('attendance_cache')) {
         database.createObjectStore('attendance_cache', { keyPath: 'id' });
       }
+      if (!database.objectStoreNames.contains('offline_users')) {
+        database.createObjectStore('offline_users', { keyPath: 'employee_id' });
+      }
     };
   });
+}
+
+function saveOfflineUser(user) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('offline_users', 'readwrite');
+    tx.objectStore('offline_users').put({
+      employee_id: user.employee_id,
+      full_name: user.full_name,
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function getOfflineUsers() {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('offline_users', 'readonly');
+    const request = tx.objectStore('offline_users').getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function renderOfflineLogin() {
+  const offlinePanel = $('#offlineLogin');
+  const offlineList = $('#offlineIdList');
+  if (!offlinePanel || !offlineList) return;
+
+  if (navigator.onLine) {
+    offlinePanel.style.display = 'none';
+    return;
+  }
+
+  getOfflineUsers().then((users) => {
+    if (users.length === 0) {
+      offlinePanel.style.display = 'none';
+      return;
+    }
+    offlinePanel.style.display = 'block';
+    offlineList.innerHTML = users.map(u =>
+      `<button class="offline-user-btn" data-empid="${u.employee_id}" style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;margin-bottom:6px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;text-align:left;font:inherit">
+        <span style="flex:1"><b>${u.employee_id}</b> — ${esc(u.full_name)}</span>
+        <span style="font-size:11px;color:var(--muted)">OFFLINE</span>
+      </button>`
+    ).join('');
+
+    offlineList.querySelectorAll('.offline-user-btn').forEach(btn => {
+      btn.addEventListener('click', () => offlineLogin(btn.dataset.empid));
+    });
+  });
+}
+
+async function offlineLogin(empId) {
+  const users = await getOfflineUsers();
+  const user = users.find(u => u.employee_id === empId);
+  if (!user) return;
+
+  currentUser = user;
+  token = 'offline';
+  localStorage.setItem('iattend_token', token);
+  localStorage.setItem('iattend_user', JSON.stringify(currentUser));
+
+  showMainScreen();
 }
 
 function savePendingCheckin(data) {
@@ -168,17 +242,27 @@ function getAttendanceCache() {
 
 // Sync offline data
 async function syncOfflineData() {
-  const pendingCount = await getPendingCheckins();
-  pendingCountEl.textContent = `(${pendingCount.length} pending)`;
-  if (pendingCount.length > 0) {
-    offlineBanner.classList.add('show');
-  } else {
-    offlineBanner.classList.remove('show');
-  }
-
   const pending = await getPendingCheckins();
   if (pending.length === 0) return;
 
+  if (token === 'offline' && currentUser) {
+    try {
+      const data = await apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ employee_id: currentUser.employee_id }),
+      });
+      token = data.token;
+      currentUser = data.user;
+      localStorage.setItem('iattend_token', token);
+      localStorage.setItem('iattend_user', JSON.stringify(currentUser));
+    } catch (e) {
+      console.error('Re-auth failed:', e);
+      return;
+    }
+  }
+
+  pendingCountEl.textContent = `(${pending.length} pending)`;
+  offlineBanner.classList.add('show');
   syncIndicator.classList.add('show');
 
   for (const item of pending) {
@@ -189,12 +273,14 @@ async function syncOfflineData() {
       });
     } catch (e) {
       console.error('Sync failed for item:', e);
+      syncIndicator.classList.remove('show');
       return;
     }
   }
 
   await clearPendingCheckins();
   syncIndicator.classList.remove('show');
+  offlineBanner.classList.remove('show');
   refreshStatus();
   updatePendingCount();
 }
@@ -292,6 +378,13 @@ loginForm.addEventListener('submit', async (e) => {
   loginBtn.disabled = true;
   loginError.classList.remove('show');
 
+  if (!navigator.onLine) {
+    loginError.textContent = 'No internet. Use offline login below.';
+    loginError.classList.add('show');
+    loginBtn.disabled = false;
+    return;
+  }
+
   try {
     const data = await apiRequest('/api/auth/login', {
       method: 'POST',
@@ -302,6 +395,8 @@ loginForm.addEventListener('submit', async (e) => {
     currentUser = data.user;
     localStorage.setItem('iattend_token', token);
     localStorage.setItem('iattend_user', JSON.stringify(currentUser));
+
+    await saveOfflineUser(data.user);
 
     showMainScreen();
   } catch (err) {
@@ -330,8 +425,19 @@ function showMainScreen() {
   mainScreen.classList.add('active');
   userLabel.textContent = currentUser.full_name;
   startGPS();
-  refreshStatus();
-  checkDeviceBinding();
+
+  if (token === 'offline') {
+    statusText.textContent = 'Offline Mode';
+    statusDetail.textContent = 'Check-ins will sync when online';
+    statusTime.textContent = '--:--';
+    deviceInfo.textContent = 'Offline — binding check skipped';
+    deviceInfo.style.color = 'var(--muted)';
+    deviceActions.style.display = 'none';
+    updatePendingCount();
+  } else {
+    refreshStatus();
+    checkDeviceBinding();
+  }
 }
 
 // Start GPS tracking
@@ -627,6 +733,19 @@ actionBtn.addEventListener('click', async () => {
 
   if (!isCheckIn && !isCheckOut) return;
 
+  // Skip geofence check in offline mode
+  if (token === 'offline' || !navigator.onLine) {
+    await performCheckin({
+      lat: currentLat,
+      lng: currentLng,
+      accuracy: gpsAccuracy,
+      android_id: await getDeviceId(),
+      device_name: navigator.userAgent.slice(0, 50),
+      biometric: false,
+    }, isCheckIn);
+    return;
+  }
+
   // If outside geofence and checking in, show modal
   if (!isInsideGeofence && isCheckIn) {
     pendingCheckinData = {
@@ -697,21 +816,24 @@ async function performCheckin(payload, isCheckIn) {
   actionBtn.disabled = true;
 
   try {
-    if (navigator.onLine) {
-      await apiRequest(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-    } else {
-      // Save for offline sync
+    if (token === 'offline' || !navigator.onLine) {
       await savePendingCheckin({
         type: isCheckIn ? 'in' : 'out',
         data: payload,
         timestamp: new Date().toISOString(),
       });
+    } else {
+      await apiRequest(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
     }
 
-    await refreshStatus();
+    if (token !== 'offline') {
+      await refreshStatus();
+    } else {
+      updatePendingCount();
+    }
     loadHistory();
   } catch (err) {
     alert(err.message);

@@ -431,7 +431,7 @@ async function renderAccounts(v) {
 
   // Download template
   $('#downloadTemplateBtn').addEventListener('click', () => {
-    const csv = 'email,employee_id,first_name,middle_name,last_name,role,department_id,position_id\nadmin@cabiao.test,1000001,Admin,,User,admin,,\njohn@cabiao.test,1000002,John,,Doe,employee,,\n';
+    const csv = 'full_name,employee_id,department,employee_type\nJuan Dela Cruz,1000001,Tech-Pro,Teaching\nMaria Santos,1000002,ABM/STEM,Non-teaching\n';
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -479,17 +479,30 @@ async function renderAccounts(v) {
         return;
       }
 
-      // Parse CSV (simple parser)
+      // Parse CSV
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
       const employees = [];
 
       for (let i = 1; i < lines.length; i++) {
         const values = parseCSVLine(lines[i]);
-        const emp = {};
+        const row = {};
         headers.forEach((h, idx) => {
-          emp[h] = values[idx]?.trim() || '';
+          row[h] = values[idx]?.trim() || '';
         });
-        employees.push(emp);
+
+        // Map new format to API format
+        const nameParts = (row.full_name || '').split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+
+        employees.push({
+          first_name: firstName,
+          last_name: lastName,
+          email: `${row.employee_id || Date.now()}@iattend.local`,
+          employee_id: row.employee_id || '',
+          department: row.department || '',
+          employee_type: row.employee_type || '',
+        });
       }
 
       // Send to API
@@ -505,7 +518,7 @@ async function renderAccounts(v) {
           <div class="msg err">
             <strong>Errors:</strong>
             <ul style="margin:8px 0 0 16px">
-              ${response.details.errors.map(e => `<li>Row ${e.row} (${esc(e.email)}): ${esc(e.error)}</li>`).join('')}
+              ${response.details.errors.map(e => `<li>Row ${e.row}: ${esc(e.error)}</li>`).join('')}
             </ul>
           </div>
         `;

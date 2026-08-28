@@ -66,74 +66,77 @@ admin.post('/employees/bulk', async (c) => {
   }
 
   const results = {
-    success: [] as { email: string; employee_id: string }[],
-    errors: [] as { row: number; email: string; error: string }[],
+    success: [] as { employee_id: string }[],
+    errors: [] as { row: number; error: string }[],
   };
 
   for (let i = 0; i < employees.length; i++) {
     const emp = employees[i];
-    const row = i + 2; // Row number in Excel (1-indexed + header)
+    const row = i + 2;
 
     try {
-      const { email, employee_id, first_name, middle_name, last_name, role, department_id, position_id } = emp;
+      const { employee_id, first_name, last_name, department, employee_type } = emp;
 
-      // Validate required fields
-      if (!email || !employee_id || !first_name) {
-        results.errors.push({ row, email: email || 'N/A', error: 'Missing required fields (email, employee_id, first_name)' });
+      if (!employee_id || !first_name) {
+        results.errors.push({ row, error: 'Missing required fields (employee_id, first_name)' });
         continue;
       }
 
-      // Validate employee_id format
       if (!/^\d{7}$/.test(employee_id)) {
-        results.errors.push({ row, email, error: 'employee_id must be 7 digits' });
+        results.errors.push({ row, error: 'employee_id must be 7 digits' });
         continue;
       }
 
-      // Check unique email
-      const existingEmail = await c.env.DB.prepare(
-        'SELECT id FROM employees WHERE email = ?'
-      ).bind(email).first();
-      if (existingEmail) {
-        results.errors.push({ row, email, error: 'Email already exists' });
-        continue;
-      }
-
-      // Check unique employee_id
       const existingId = await c.env.DB.prepare(
         'SELECT id FROM employees WHERE employee_id = ?'
       ).bind(employee_id).first();
       if (existingId) {
-        results.errors.push({ row, email, error: 'Employee ID already exists' });
+        results.errors.push({ row, error: 'Employee ID already exists' });
         continue;
       }
 
-      // Default department/position
-      let deptId = department_id;
-      let posId = position_id;
-      if (!deptId) {
-        const genDept = await c.env.DB.prepare(
+      // Resolve department by name
+      let deptId: string | null = null;
+      if (department) {
+        const dept = await c.env.DB.prepare(
           'SELECT id FROM departments WHERE name = ?'
-        ).bind('General').first();
-        deptId = genDept?.id as string;
+        ).bind(department).first();
+        if (dept) deptId = dept.id as string;
+      }
+      if (!deptId) {
+        const defDept = await c.env.DB.prepare(
+          'SELECT id FROM departments ORDER BY sort_order LIMIT 1'
+        ).first();
+        deptId = defDept?.id as string || null;
+      }
+
+      // Resolve position by name
+      let posId: string | null = null;
+      if (employee_type) {
+        const pos = await c.env.DB.prepare(
+          'SELECT id FROM positions WHERE name = ?'
+        ).bind(employee_type).first();
+        if (pos) posId = pos.id as string;
       }
       if (!posId) {
-        const genPos = await c.env.DB.prepare(
-          'SELECT id FROM positions WHERE name = ?'
-        ).bind('Staff').first();
-        posId = genPos?.id as string;
+        const defPos = await c.env.DB.prepare(
+          'SELECT id FROM positions ORDER BY sort_order LIMIT 1'
+        ).first();
+        posId = defPos?.id as string || null;
       }
 
       const id = crypto.randomUUID();
       const fullName = `${first_name} ${last_name || ''}`.trim();
+      const email = `${employee_id}@iattend.local`;
 
       await c.env.DB.prepare(
-        `INSERT INTO employees (id, full_name, email, role, employee_id, first_name, middle_name, last_name, department_id, position_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(id, fullName, email, role || 'employee', employee_id, first_name, middle_name || null, last_name || null, deptId, posId).run();
+        `INSERT INTO employees (id, full_name, email, role, employee_id, first_name, last_name, department_id, position_id)
+         VALUES (?, ?, ?, 'employee', ?, ?, ?, ?, ?)`
+      ).bind(id, fullName, email, employee_id, first_name, last_name || null, deptId, posId).run();
 
-      results.success.push({ email, employee_id });
+      results.success.push({ employee_id });
     } catch (err) {
-      results.errors.push({ row, email: emp.email || 'N/A', error: (err as Error).message });
+      results.errors.push({ row, error: (err as Error).message });
     }
   }
 

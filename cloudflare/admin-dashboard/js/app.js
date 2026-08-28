@@ -232,14 +232,15 @@ function renderDeptDetail(deptId, status, employees, departments) {
     <div class="panel">
       <h2>${deptId === 'all' ? 'All Departments' : departments.find(d => d.id === deptId)?.name}</h2>
       <table>
-        <thead><tr><th>Name</th><th>Time</th><th>Mode</th><th>Duration</th></tr></thead>
+        <thead><tr><th>Name</th><th>Time</th><th>Location</th><th>Duration</th></tr></thead>
         <tbody>
           ${filtered.map(s => {
             const duration = Math.round((new Date() - new Date(s.checked_at)) / 60000);
+            const location = s.mode === 'inside' ? 'Inside the Campus' : 'Outside the Campus';
             return `<tr>
               <td>${esc(s.full_name)}</td>
               <td>${fmtTime(s.checked_at)}</td>
-              <td><span class="badge in">${s.mode}</span></td>
+              <td><span class="badge ${s.mode === 'inside' ? 'in' : 'out'}">${location}</span></td>
               <td>${duration} min</td>
             </tr>`;
           }).join('')}
@@ -577,7 +578,7 @@ async function renderRecords(v) {
         <button class="secondary" id="exportCsvBtn">Export CSV</button>
       </div>
       <table>
-        <thead><tr><th>Name</th><th>Date</th><th>IN</th><th>OUT</th><th>Mode</th><th>Duration</th></tr></thead>
+        <thead><tr><th>Name</th><th>Date</th><th>IN</th><th>OUT</th><th>Location</th><th>Duration</th></tr></thead>
         <tbody>
           ${records.map(r => {
             const emp = employees.find(e => e.id === r.employee_id);
@@ -586,7 +587,7 @@ async function renderRecords(v) {
               <td>${fmtDT(r.checked_at)}</td>
               <td>${r.check_type === 'in' ? fmtTime(r.checked_at) : '-'}</td>
               <td>${r.check_type === 'out' ? fmtTime(r.checked_at) : '-'}</td>
-              <td><span class="badge ${r.check_type === 'in' ? 'in' : 'out'}">${r.mode}</span></td>
+              <td><span class="badge ${r.check_type === 'in' ? 'in' : 'out'}">${r.mode === 'inside' ? 'Inside the Campus' : 'Outside the Campus'}</span></td>
               <td>-</td>
             </tr>`;
           }).join('')}
@@ -606,7 +607,7 @@ async function renderRecords(v) {
 
   // CSV Export
   $('#exportCsvBtn').addEventListener('click', () => {
-    const rows = [['Name', 'Date', 'Check Type', 'Time', 'Mode', 'Status']];
+    const rows = [['Name', 'Date', 'Check Type', 'Time', 'Location', 'Status']];
     records.forEach(r => {
       const emp = employees.find(e => e.id === r.employee_id);
       rows.push([
@@ -614,7 +615,7 @@ async function renderRecords(v) {
         new Date(r.checked_at).toLocaleDateString(),
         r.check_type,
         fmtTime(r.checked_at),
-        r.mode,
+        r.mode === 'inside' ? 'Inside the Campus' : 'Outside the Campus',
         r.status,
       ]);
     });

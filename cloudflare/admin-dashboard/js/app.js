@@ -281,10 +281,10 @@ async function renderAccounts(v) {
               <td>${deviceInfo}</td>
               <td><span class="badge ${e.is_active ? 'in' : 'out'}">${e.is_active ? 'Active' : 'Disabled'}</span></td>
               <td>
-                <button class="secondary edit-btn" data-id="${e.id}" data-name="${esc(e.full_name)}" data-email="${esc(e.email)}" data-eid="${esc(e.employee_id || '')}" data-role="${e.role}" data-dept="${e.department_id || ''}" data-pos="${e.position_id || ''}">Edit</button>
-                <button class="danger delete-btn" data-id="${e.id}" data-name="${esc(e.full_name)}">Delete</button>
-                <button class="secondary toggle-btn" data-id="${e.id}">${e.is_active ? 'Disable' : 'Enable'}</button>
-                ${device ? `<button class="danger unbind-btn" data-eid="${e.id}" data-aid="${esc(device.android_id)}">Unbind</button>` : ''}
+                <button class="secondary act-icon edit-btn" title="Edit" data-id="${e.id}" data-name="${esc(e.full_name)}" data-email="${esc(e.email)}" data-eid="${esc(e.employee_id || '')}" data-role="${e.role}" data-dept="${e.department_id || ''}" data-pos="${e.position_id || ''}">&#9998;</button>
+                <button class="danger act-icon delete-btn" title="Delete" data-id="${e.id}" data-name="${esc(e.full_name)}">&#10005;</button>
+                <button class="secondary act-icon toggle-btn" title="${e.is_active ? 'Disable' : 'Enable'}" data-id="${e.id}">${e.is_active ? '&#10003;' : '&#10007;'}</button>
+                ${device ? `<button class="danger act-icon unbind-btn" title="Unbind device" data-eid="${e.id}" data-aid="${esc(device.android_id)}">&#128274;</button>` : ''}
               </td>
             </tr>`;
           }).join('')}

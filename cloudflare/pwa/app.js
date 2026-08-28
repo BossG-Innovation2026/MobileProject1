@@ -23,6 +23,8 @@ const durationTime = $('#durationTime');
 const historyList = $('#historyList');
 const offlineBanner = $('#offlineBanner');
 const syncIndicator = $('#syncIndicator');
+const pendingCountEl = $('#pendingCount');
+const pendingCountEl = $('#pendingCount');
 const userLabel = $('#userLabel');
 
 const deviceInfo = $('#deviceInfo');
@@ -166,6 +168,14 @@ function getAttendanceCache() {
 
 // Sync offline data
 async function syncOfflineData() {
+  const pendingCount = await getPendingCheckins();
+  pendingCountEl.textContent = `(${pendingCount.length} pending)`;
+  if (pendingCount.length > 0) {
+    offlineBanner.classList.add('show');
+  } else {
+    offlineBanner.classList.remove('show');
+  }
+
   const pending = await getPendingCheckins();
   if (pending.length === 0) return;
 
@@ -179,13 +189,76 @@ async function syncOfflineData() {
       });
     } catch (e) {
       console.error('Sync failed for item:', e);
-      return; // Stop if one fails, will retry later
+      return;
     }
   }
 
   await clearPendingCheckins();
   syncIndicator.classList.remove('show');
   refreshStatus();
+  updatePendingCount();
+}
+
+// Update pending count display
+function updatePendingCount() {
+  getPendingCheckins().then((pending) => {
+    const count = pending.length;
+    if (count > 0) {
+      pendingCountEl.textContent = `(${count} pending)`;
+      offlineBanner.classList.add('show');
+    } else {
+      pendingCountEl.textContent = '';
+      offlineBanner.classList.remove('show');
+    }
+  });
+}
+
+// IndexedDB operations
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('iattend_db', 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      db = request.result;
+      resolve(db);
+    };
+    request.onupgradeneeded = (e) => {
+      const database = e.target.result;
+      if (!database.objectStoreNames.contains('pending_checkins')) {
+        database.createObjectStore('pending_checkins', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!database.objectStoreNames.contains('attendance_cache')) {
+        database.createObjectStore('attendance_cache', { keyPath: 'id' });
+      }
+    };
+  });
+}
+
+function savePendingCheckin(data) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('pending_checkins', 'readwrite');
+    tx.objectStore('pending_checkins').add(data);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function getPendingCheckins() {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('pending_checkins', 'readonly');
+    const request = tx.objectStore('pending_checkins').getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function clearPendingCheckins() {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('pending_checkins', 'readwrite');
+    tx.objectStore('pending_checkins').clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 // API Request

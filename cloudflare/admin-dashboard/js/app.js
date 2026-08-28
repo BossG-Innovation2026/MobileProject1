@@ -152,18 +152,11 @@ async function renderDashboard(v) {
 
   const clockedInCount = status.length;
 
-  function fmtDateTimeMs(d) {
-    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    const date = `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-    const h = d.getHours().toString().padStart(2,'0');
-    const m = d.getMinutes().toString().padStart(2,'0');
-    const s = d.getSeconds().toString().padStart(2,'0');
-    const ms = d.getMilliseconds().toString().padStart(3,'0');
-    return `${date} — ${h}:${m}:${s}.${ms}`;
-  }
-
-  v.innerHTML = `<div class="date-banner"><span id="dateBannerTime">${fmtDateTimeMs(new Date())}</span><span class="logged-in-count">Logged-In: ${clockedInCount}</span></div>
+  // Date banner with live clock
+  v.innerHTML = `
+    <div class="date-banner">
+      <span id="dateBannerTime">${fmtDateTimeMs(new Date())}</span>
+    </div>
     <div class="dept-cards" id="deptCards">
       <button class="dept-card all" data-dept="all">
         <div class="dept-name">All Departments</div>

@@ -131,11 +131,17 @@
     align-items: center;
   }
   .logged-in-count {
-    font-size: 14px;
-    font-weight: 600;
-    background: rgba(255,255,255,0.2);
-    padding: 4px 12px;
+    font-size: 20px;
+    font-weight: 700;
+    background: #fff;
+    color: #000;
+    padding: 6px 16px;
     border-radius: 8px;
+    animation: blink 1.5s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
   }
   @media print {
     header, nav, #logoutBtn, .no-print { display: none !important; }

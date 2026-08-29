@@ -397,7 +397,7 @@ loginForm.addEventListener('submit', async (e) => {
     localStorage.setItem('iattend_user', JSON.stringify(currentUser));
 
     await saveOfflineUser(data.user);
-    await showPinBeforeAction();
+
     showMainScreen();
   } catch (err) {
     loginError.textContent = err.message;
@@ -732,12 +732,6 @@ actionBtn.addEventListener('click', async () => {
 
   if (!isCheckIn && !isCheckOut) return;
 
-  const verified = await showPinBeforeAction();
-  if (!verified) {
-    alert('Verification failed. Access denied.');
-    return;
-  }
-
   if (token === 'offline' || !navigator.onLine) {
     await performCheckin({
       lat: currentLat,
@@ -874,157 +868,6 @@ async function getDeviceId() {
 
   return id;
 }
-
-// PIN verification
-function hashPin(pin, salt) {
-  const enc = new TextEncoder();
-  return crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits'])
-    .then(km => crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, km, 256))
-    .then(b => Array.from(new Uint8Array(b)));
-}
-
-async function getPinSalt() { return getFromDB('pin_salt'); }
-async function getPinHash() { return getFromDB('pin_hash'); }
-
-async function setPin(pin) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await hashPin(pin, salt);
-  await saveToDB('pin_salt', JSON.stringify(Array.from(salt)));
-  await saveToDB('pin_hash', JSON.stringify(hash));
-}
-
-async function verifyPin(pin) {
-  const saltRaw = await getPinSalt();
-  const hashRaw = await getPinHash();
-  if (!saltRaw || !hashRaw) return false;
-  const salt = new Uint8Array(JSON.parse(saltRaw));
-  const expected = JSON.parse(hashRaw);
-  const actual = await hashPin(pin, salt);
-  if (actual.length !== expected.length) return false;
-  return actual.every((v, i) => v === expected[i]);
-}
-
-// PIN overlay
-let pinResolve = null;
-let pinAttempts = 0;
-
-function openPinOverlay(title, subtitle) {
-  return new Promise(resolve => {
-    pinResolve = resolve;
-    pinAttempts = 0;
-    const overlay = $('#pinOverlay');
-    const dots = overlay.querySelectorAll('.pin-dot');
-    const titleEl = $('#pinTitle');
-    const subEl = $('#pinSubtitle');
-    titleEl.textContent = title;
-    subEl.textContent = subtitle || 'Confirm your identity to proceed';
-    dots.forEach(d => d.style.background = 'var(--border)');
-    overlay.style.display = 'flex';
-    overlay._resolve = resolve;
-    overlay._resolveSetPin = null;
-  });
-}
-
-function closePinOverlay(result) {
-  const overlay = $('#pinOverlay');
-  overlay.style.display = 'none';
-  if (pinResolve) { pinResolve(result); pinResolve = null; }
-}
-
-function initPinKeypad() {
-  const overlay = $('#pinOverlay');
-  overlay.querySelectorAll('.pin-key').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const digit = btn.dataset.digit;
-      const dots = overlay.querySelectorAll('.pin-dot');
-      const current = Array.from(overlay.querySelectorAll('.pin-dot')).filter(d => d.style.background === 'var(--orange)').length;
-      if (digit === 'backspace') {
-        if (current > 0) {
-          const entered = overlay._entered || [];
-          entered.pop();
-          overlay._entered = entered;
-          dots[entered.length].style.background = 'var(--border)';
-        }
-        return;
-      }
-      if (!digit || current >= 4) return;
-      overlay._entered = overlay._entered || [];
-      overlay._entered.push(digit);
-      dots[current].style.background = 'var(--orange)';
-      if (overlay._entered.length === 4) {
-        const pin = overlay._entered.join('');
-        overlay._entered = [];
-        const title = $('#pinTitle').textContent;
-        if (title === 'Set PIN') {
-          await setPin(pin);
-          closePinOverlay(true);
-          return;
-        }
-        const ok = await verifyPin(pin);
-        if (ok) {
-          dots.forEach(d => d.style.background = 'var(--green)');
-          setTimeout(() => closePinOverlay(true), 300);
-        } else {
-          pinAttempts++;
-          dots.forEach(d => { d.style.background = 'var(--red)'; setTimeout(() => d.style.background = 'var(--border)', 400); });
-          if (pinAttempts >= 3) {
-            setTimeout(() => { alert('Too many attempts.'); closePinOverlay(false); }, 600);
-            return;
-          }
-          setTimeout(() => {
-            overlay.querySelectorAll('.pin-dot').forEach(d => d.style.background = 'var(--border)');
-            overlay._entered = [];
-          }, 600);
-        }
-      }
-    });
-  });
-}
-
-function showPinBeforeAction() {
-  return new Promise(async (resolve) => {
-    const hasHash = await getPinHash();
-    if (!hasHash) {
-      const ok = await openPinOverlay('Set PIN', 'Create a 4-digit PIN for quick login');
-      if (ok) {
-        const overlay = $('#pinOverlay');
-        overlay.querySelectorAll('.pin-dot').forEach(d => d.style.background = 'var(--border)');
-        let entered = [];
-        const dots = overlay.querySelectorAll('.pin-dot');
-        const waitForPin = () => new Promise(res => {
-          let attemptResolve = null;
-          overlay.addEventListener('click', function h() {
-            const btn = event.target.closest('.pin-key');
-            if (!btn) return;
-            const d = btn.dataset.digit;
-            if (d === 'backspace') {
-              if (entered.length > 0) { entered.pop(); dots[entered.length].style.background = 'var(--border)'; }
-              return;
-            }
-            if (!d || entered.length >= 4) return;
-            entered.push(d);
-            dots[entered.length - 1].style.background = 'var(--orange)';
-            if (entered.length === 4) {
-              overlay.removeEventListener('click', h);
-              res(entered.join(''));
-            }
-          });
-        });
-        const pin = await waitForPin();
-        await setPin(pin);
-        overlay.style.display = 'none';
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    } else {
-      const result = await openPinOverlay('Enter PIN', '');
-      resolve(result);
-    }
-  });
-}
-
-initPinKeypad();
 
 function saveToDB(key, value) {
   return new Promise((resolve, reject) => {
